@@ -18,6 +18,8 @@ from collections import Sequence, Set
 
 
 class IntSet(object):
+    __slots__ = ()
+
     """
     An IntSet is a compressed representation of a sorted list of unsigned
     64-bit integers with fast membership, union and range restriction.
@@ -443,6 +445,8 @@ Set.register(IntSet)
 
 
 class Empty(IntSet):
+    __slots__ = ()
+
     _size = 0
 
     def __init__(self):
@@ -468,6 +472,7 @@ empty_intset = Empty()
 
 
 class Split(IntSet):
+    __slots__ = ('prefix', 'mask', 'left', 'right', '_size', 'start', 'end')
 
     def __init__(self, prefix, mask, left, right):
         self.mask = mask
@@ -539,6 +544,7 @@ class Split(IntSet):
 
 
 class Interval(IntSet):
+    __slots__ = ('_size', 'start', 'end')
 
     def __init__(self, start, end):
         self.start = start
