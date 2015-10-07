@@ -258,31 +258,27 @@ class IntSet(object):
             return other.restrict(self.start, self.end)
         if isinstance(other, Interval):
             return self.restrict(other.start, other.end)
-        assert isinstance(self, Split)
-        assert isinstance(other, Split)
-        if self.start > other.end:
+        if self.start >= other.end:
             return empty_intset
-        if self.end < other.start:
+        if self.end <= other.start:
             return empty_intset
         if _shorter(other.mask, self.mask):
             self, other = other, self
         if _shorter(self.mask, other.mask):
-            if _no_match(other.prefix, self.prefix, self.mask):
-                return empty_intset
-            elif _is_zero(other.prefix, self.mask):
+            if _is_zero(other.prefix, self.mask):
                 return self.left & other
             else:
                 return self.right & other
         else:
             assert self.mask == other.mask
-            if self.prefix == other.prefix:
-                return self._new_split(
-                    self.prefix, self.mask,
-                    self.left & other.left,
-                    self.right & other.right
-                )
-            else:
-                return empty_intset
+            # If the prefixes differ we should have excluded this at the
+            # bounds checks earlier
+            assert self.prefix == other.prefix
+            return self._new_split(
+                self.prefix, self.mask,
+                self.left & other.left,
+                self.right & other.right
+            )
 
     def __sub__(self, other):
         if other._size == 0:
@@ -560,12 +556,12 @@ class Interval(IntSet):
     def _insert(self, value):
         if self.start <= value < self.end:
             return self
-        elif self._size == 1:
-            return _join(self.start, self, value, _single(value))
         elif value + 1 == self.start:
             return _interval(self.start - 1, self.end)
         elif value == self.end:
             return _interval(self.start, self.end + 1)
+        elif self._size == 1:
+            return _join(self.start, self, value, _single(value))
         else:
             return self._split_interval()._insert(value)
 

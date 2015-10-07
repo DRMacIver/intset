@@ -25,9 +25,14 @@ from hypothesis.stateful import Bundle, rule, RuleBasedStateMachine
 from intset import IntSet
 from intset.intset import Interval
 
+from hypothesis import Settings
+
 if os.getenv('HYPOTHESIS_PROFILE') == 'coverage':
-    from hypothesis import Settings
     Settings.default.max_examples = 0
+else:
+    Settings.default.max_examples = 2000
+    Settings.default.stateful_step_count = 500
+    Settings.default.timeout = -1
 
 
 def test_not_equal_to_other_types():
@@ -64,7 +69,9 @@ IntSets = st.builds(
 @example([
     [5072311219282295777, 5072311219282295778],
     [5072311219282295775, 5072311219282295776], [0, 5072311219282295775]])
+@example([[3, 4], [0, 2], [0, 3]])
 @example([[2, 5], [0, 1]])
+@example([[3, 4], [0, 2], [0, 1], [0, 2]])
 @given(interval_list)
 def test_sequentially_removing_intervals_yields_empty(ls):
     running = IntSet.from_intervals(ls)
@@ -472,6 +479,12 @@ def test_intersection_distributes_over_union(x, y, z):
 
 
 @pytest.mark.parametrize('f', [op.and_, op.or_, op.xor])
+@example(
+    IntSet.empty(),
+    IntSet.from_intervals([
+        (0, 1), (4611686018427387906, 4611686018427387908),
+        (4611686018427387908, 4611686018427387909)]),
+    IntSet.from_iterable([0, 4611686018427387904, 4611686018427387905]))
 @given(SmallIntSets, SmallIntSets, SmallIntSets)
 def test_associative_operators(f, x, y, z):
     assert f(f(x, y), z) == f(x, f(y, z))
@@ -496,6 +509,16 @@ def test_associative_operators(f, x, y, z):
          (9943224696285111296, 9943224696285111297)]),
     IntSet.from_iterable([0, 9943224696285111296, 9943224696285111297]))
 @example(IntSet.interval(0, 2), IntSet.from_iterable([0, 1]))
+@example(
+    IntSet.from_intervals([
+        (0, 1), (9943224696285111261, 9943224696285111264),
+        (9943224696285111264, 9943224696285111296),
+        (9943224696285111296, 9943224696285111297)]),
+    IntSet.from_intervals([(0, 1), (9943224696285111296, 9943224696285111298)])
+)
+@example(
+    IntSet.from_iterable([0, 2]),
+    IntSet.from_intervals([(0, 1), (2, 4), (4, 5)]))
 @given(SmallIntSets, SmallIntSets)
 def test_commutative_operators(f, x, y):
     assert f(x, y) == f(y, x)
@@ -536,6 +559,21 @@ def test_repr_evals_to_self(imp):
 @given(SmallIntSets)
 def test_reversible_as_list(imp):
     assert list(reversed(imp)) == list(reversed(list(imp)))
+
+
+@given(SmallIntSets, st.randoms())
+def test_remove_half_the_elements_then_intersect(imp, rnd):
+    values = list(imp)
+    rnd.shuffle(values)
+    x = imp
+    y = imp
+    k = len(values) // 2
+    for v in values[:k]:
+        x = x.discard(v)
+    for v in values[k:]:
+        y = y.discard(v)
+    assert (x & y).size() == 0
+    assert x.isdisjoint(y)
 
 
 class SetModel(RuleBasedStateMachine):
