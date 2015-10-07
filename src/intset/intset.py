@@ -52,7 +52,7 @@ class IntSet(object):
     def from_iterable(self, values):
         result = empty_intset
         for i in values:
-            result = result.insert(i)
+            result = result._insert(i)
         return result
 
     @classmethod
@@ -75,20 +75,29 @@ class IntSet(object):
         """Return a new IntSet with all values x in self such that start <=
         x < end."""
 
-    @abstractmethod
     def insert(self, value):
         """Returns an IntSet which contains all the values of the current one
         plus the provided value."""
+        _validate_integer_in_range('value', value)
+        return self._insert(value)
 
-    @abstractmethod
     def discard(self, value):
         """Returns an IntSet which contains all the values of the current one
         except for the passed in value.
 
         Returns self if the value is not present rather than raising an
         error
-
         """
+        _validate_integer_in_range('value', value)
+        return self._discard(value)
+
+    @abstractmethod
+    def _insert(self, value):
+        """Implementation of insert"""
+
+    @abstractmethod
+    def _discard(self, value):
+        """Implementation of discard"""
 
     def __len__(self):
         return self.size()
@@ -346,7 +355,7 @@ class IntSet(object):
                 return self
         if isinstance(other, Interval):
             if other.size() == 1:
-                return self.insert(other.start)
+                return self._insert(other.start)
             else:
                 other = other._split_interval()
         if isinstance(self, Interval):
@@ -448,12 +457,10 @@ class Empty(IntSet):
     def __hash__(self):
         return 0
 
-    def insert(self, value):
-        _validate_integer_in_range('value', value)
+    def _insert(self, value):
         return IntSet.single(value)
 
-    def discard(self, value):
-        _validate_integer_in_range('value', value)
+    def _discard(self, value):
         return self
 
     def restrict(self, start, end):
@@ -499,8 +506,7 @@ class Split(IntSet):
         else:
             return 'IntSet.from_iterable(%r)' % ([i for i, _ in intervals],)
 
-    def insert(self, value):
-        _validate_integer_in_range('value', value)
+    def _insert(self, value):
         if _no_match(value, self.prefix, self.mask):
             return _join(
                 value, IntSet.single(value),
@@ -509,18 +515,17 @@ class Split(IntSet):
         elif _is_zero(value, self.mask):
             return self._new_split(
                 prefix=self.prefix, mask=self.mask,
-                left=self.left.insert(value),
+                left=self.left._insert(value),
                 right=self.right,
             )
         else:
             return self._new_split(
                 prefix=self.prefix, mask=self.mask,
                 left=self.left,
-                right=self.right.insert(value),
+                right=self.right._insert(value),
             )
 
-    def discard(self, value):
-        _validate_integer_in_range('value', value)
+    def _discard(self, value):
         if _is_zero(value, self.mask):
             return self._new_split(
                 prefix=self.prefix, mask=self.mask,
@@ -562,8 +567,7 @@ class Interval(IntSet):
         else:
             return 'IntSet.interval(%d, %d)' % (self.start, self.end)
 
-    def insert(self, value):
-        _validate_integer_in_range('value', value)
+    def _insert(self, value):
         if self.start <= value < self.end:
             return self
         elif self.size() == 1:
@@ -573,10 +577,9 @@ class Interval(IntSet):
         elif value == self.end:
             return IntSet.interval(self.start, self.end + 1)
         else:
-            return self._split_interval().insert(value)
+            return self._split_interval()._insert(value)
 
-    def discard(self, value):
-        _validate_integer_in_range('value', value)
+    def _discard(self, value):
         if value < self.start or value >= self.end:
             return self
         if value == self.start:

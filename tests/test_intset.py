@@ -311,6 +311,7 @@ def test_restricting_bounds_does_not_remove_other_items(imp, interval):
         assert interval[0] <= i < interval[1]
 
 
+@example(IntSet.single(0))
 @given(SmallIntSets)
 def test_equality_is_preserved(imp):
     for i in imp:
