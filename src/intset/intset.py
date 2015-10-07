@@ -64,11 +64,11 @@ class IntSet(object):
             base |= cls.interval(*ints)
         return base
 
-    @abstractmethod
     def size(self):
         """This returns the same as len() when the latter is defined, but
         IntSet may have more values than will fit in the size of index that len
         will allow."""
+        return self._size
 
     @abstractmethod
     def restrict(self, start, end):
@@ -100,10 +100,10 @@ class IntSet(object):
         """Implementation of discard"""
 
     def __len__(self):
-        return self.size()
+        return self._size
 
     def __bool__(self):
-        return self.size() > 0
+        return self._size > 0
 
     def __nonzero__(self):
         return self.__bool__()
@@ -113,7 +113,7 @@ class IntSet(object):
             return True
         if not isinstance(other, IntSet):
             return False
-        if self.size() != other.size():
+        if self._size != other._size:
             return False
         return self.__cmp__(other) == 0
 
@@ -172,26 +172,26 @@ class IntSet(object):
                 yield i
 
     def __getitem__(self, i):
-        if i < -self.size() or i >= self.size():
+        if i < -self._size or i >= self._size:
             raise IndexError('IntSet index %d out of range for size %d' % (
-                i, self.size(),
+                i, self._size,
             ))
         if i < 0:
-            i += self.size()
+            i += self._size
         assert i >= 0
         while isinstance(self, Split):
-            if i < self.left.size():
+            if i < self.left._size:
                 self = self.left
             else:
-                i -= self.left.size()
+                i -= self.left._size
                 self = self.right
         assert isinstance(self, Interval)
-        assert 0 <= i < self.size()
+        assert 0 <= i < self._size
         return self.start + i
 
     def __hash__(self):
         return hash((
-            self.size(), self.start, self.end
+            self._size, self.start, self.end
         ))
 
     def isdisjoint(self, other):
@@ -222,9 +222,9 @@ class IntSet(object):
         if other.start >= self.end:
             return False
         if isinstance(self, Interval):
-            if self.size() == 1:
+            if self._size == 1:
                 return self.start in other
-            elif self.size() == 2:
+            elif self._size == 2:
                 return self.start in other and self.end - 1 in other
             self = self._split_interval()
         assert isinstance(self, Split)
@@ -246,11 +246,11 @@ class IntSet(object):
                 self.right.issubset(other.right))
 
     def __and__(self, other):
-        if min(self.size(), other.size()) == 0:
+        if min(self._size, other._size) == 0:
             return empty_intset
-        if self.size() > other.size():
+        if self._size > other._size:
             self, other = other, self
-        if self.size() == 1:
+        if self._size == 1:
             if self.start in other:
                 return self
             else:
@@ -286,14 +286,14 @@ class IntSet(object):
                 return empty_intset
 
     def __sub__(self, other):
-        if other.size() == 0:
+        if other._size == 0:
             return self
-        if self.size() == 0:
+        if self._size == 0:
             return self
         if isinstance(other, Interval):
             return self.restrict(self.start, other.start) | \
                 self.restrict(other.end, self.end)
-        if self.size() == 1:
+        if self._size == 1:
             if self.start in other:
                 return empty_intset
             else:
@@ -332,20 +332,20 @@ class IntSet(object):
         return (self | other) - (self & other)
 
     def __or__(self, other):
-        if self.size() == 0:
+        if self._size == 0:
             return other
-        if other.size() == 0:
+        if other._size == 0:
             return self
-        if other.size() > self.size():
+        if other._size > self._size:
             other, self = self, other
         if isinstance(self, Interval) and isinstance(other, Interval):
             if not (self.start > other.end or other.start > self.end):
                 return self._new_interval(
                     min(self.start, other.start), max(self.end, other.end))
-            elif self.size() > 1:
+            elif self._size > 1:
                 return self._split_interval() | other
             else:
-                assert self.size() == other.size() == 1
+                assert self._size == other._size == 1
                 return _join(self.start, self, other.start, other)
         if isinstance(other, Interval):
             if other.start <= self.start < self.end <= other.end:
@@ -354,7 +354,7 @@ class IntSet(object):
             if self.start <= other.start < other.end <= self.end:
                 return self
         if isinstance(other, Interval):
-            if other.size() == 1:
+            if other._size == 1:
                 return self._insert(other.start)
             else:
                 other = other._split_interval()
@@ -420,9 +420,9 @@ class IntSet(object):
                 yield i
 
     def _new_split(self, prefix, mask, left, right):
-        if left.size() == 0:
+        if left._size == 0:
             return right
-        if right.size() == 0:
+        if right._size == 0:
             return left
         if (
             left.__class__ is right.__class__ is Interval and
@@ -446,9 +446,7 @@ Set.register(IntSet)
 
 
 class Empty(IntSet):
-
-    def size(self):
-        return 0
+    _size = 0
 
     def __init__(self):
         pass
@@ -482,16 +480,13 @@ class Split(IntSet):
         for sub in (left, right):
             if isinstance(sub, Split):
                 assert _shorter(self.mask, sub.mask)
-        self._size = left.size() + right.size()
+        self._size = left._size + right._size
         self.start = left.start
         self.end = right.end
         assert mask > 0
 
-    def size(self):
-        return self._size
-
     def _compress(self):
-        if self.end == self.start + self.size():
+        if self.end == self.start + self._size:
             return IntSet.interval(self.start, self.end)
         else:
             return self
@@ -555,13 +550,10 @@ class Interval(IntSet):
     def __init__(self, start, end):
         self.start = start
         self.end = end
-        assert self.start < self.end
-
-    def size(self):
-        return self.end - self.start
+        self._size = end - start
 
     def __repr__(self):
-        if self.size() == 1:
+        if self._size == 1:
             return 'IntSet.single(%d)' % (self.start,)
         else:
             return 'IntSet.interval(%d, %d)' % (self.start, self.end)
@@ -569,7 +561,7 @@ class Interval(IntSet):
     def _insert(self, value):
         if self.start <= value < self.end:
             return self
-        elif self.size() == 1:
+        elif self._size == 1:
             return _join(self.start, self, value, IntSet.single(value))
         elif value + 1 == self.start:
             return IntSet.interval(self.start - 1, self.end)
@@ -596,7 +588,7 @@ class Interval(IntSet):
             return IntSet.interval(max(start, self.start), min(end, self.end))
 
     def _split_interval(self):
-        assert self.size() >= 2
+        assert self._size >= 2
         split_mask = branch_mask(self.start, self.end - 1)
         split_prefix = _mask_off(self.start, split_mask)
         split_point = split_prefix | split_mask
