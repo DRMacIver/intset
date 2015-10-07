@@ -32,7 +32,7 @@ class IntSet(object):
         """Return an IntSet containing only the single value provided."""
         _validate_integer_in_range('value', value)
         _validate_integer_in_range('value + 1', value + 1)
-        return Interval(value, value + 1)
+        return _single(value)
 
     @classmethod
     def interval(cls, start, end):
@@ -43,10 +43,7 @@ class IntSet(object):
         _validate_integer_in_range('start', start)
         if end != 0:
             _validate_integer_in_range('end - 1', end - 1)
-        if end <= start:
-            return empty_intset
-        else:
-            return Interval(start, end)
+        return _interval(start, end)
 
     @classmethod
     def from_iterable(self, values):
@@ -431,15 +428,15 @@ class IntSet(object):
             return self._new_interval(left.start, right.end)
         if (
             self.__class__ is Split and
-            prefix == self.prefix and mask == self.mask and left is self.left
-            and right is self.right
+            left is self.left and right is self.right and
+            prefix == self.prefix and mask == self.mask
         ):
             return self._compress()
         return Split(
             prefix=prefix, mask=mask, left=left, right=right)._compress()
 
     def _new_interval(self, start, end):
-        return IntSet.interval(start, end)
+        return _interval(start, end)
 
 Sequence.register(IntSet)
 Set.register(IntSet)
@@ -455,7 +452,7 @@ class Empty(IntSet):
         return 0
 
     def _insert(self, value):
-        return IntSet.single(value)
+        return _single(value)
 
     def _discard(self, value):
         return self
@@ -477,17 +474,13 @@ class Split(IntSet):
         self.prefix = prefix
         self.left = left
         self.right = right
-        for sub in (left, right):
-            if isinstance(sub, Split):
-                assert _shorter(self.mask, sub.mask)
         self._size = left._size + right._size
         self.start = left.start
         self.end = right.end
-        assert mask > 0
 
     def _compress(self):
         if self.end == self.start + self._size:
-            return IntSet.interval(self.start, self.end)
+            return _interval(self.start, self.end)
         else:
             return self
 
@@ -503,7 +496,7 @@ class Split(IntSet):
     def _insert(self, value):
         if _no_match(value, self.prefix, self.mask):
             return _join(
-                value, IntSet.single(value),
+                value, _single(value),
                 self.prefix, self
             )
         elif _is_zero(value, self.mask):
@@ -562,11 +555,11 @@ class Interval(IntSet):
         if self.start <= value < self.end:
             return self
         elif self._size == 1:
-            return _join(self.start, self, value, IntSet.single(value))
+            return _join(self.start, self, value, _single(value))
         elif value + 1 == self.start:
-            return IntSet.interval(self.start - 1, self.end)
+            return _interval(self.start - 1, self.end)
         elif value == self.end:
-            return IntSet.interval(self.start, self.end + 1)
+            return _interval(self.start, self.end + 1)
         else:
             return self._split_interval()._insert(value)
 
@@ -574,9 +567,9 @@ class Interval(IntSet):
         if value < self.start or value >= self.end:
             return self
         if value == self.start:
-            return IntSet.interval(self.start + 1, self.end)
+            return _interval(self.start + 1, self.end)
         if value + 1 == self.end:
-            return IntSet.interval(self.start, self.end - 1)
+            return _interval(self.start, self.end - 1)
         return self._split_interval().discard(value)
 
     def restrict(self, start, end):
@@ -585,7 +578,7 @@ class Interval(IntSet):
         else:
             start = max(start, self.start)
             end = min(end, self.end)
-            return IntSet.interval(max(start, self.start), min(end, self.end))
+            return _interval(max(start, self.start), min(end, self.end))
 
     def _split_interval(self):
         assert self._size >= 2
@@ -666,4 +659,14 @@ def _validate_integer_in_range(name, i):
         raise ValueError(
             'Argument %s=%d out of required range 0 <= %s < 2 ** 64' % (
                 name, i, name))
-    return int(i)
+
+
+def _interval(start, end):
+    if end <= start:
+        return empty_intset
+    else:
+        return Interval(start, end)
+
+
+def _single(value):
+    return Interval(value, value + 1)
