@@ -425,13 +425,12 @@ class IntSet(object):
         if right.size() == 0:
             return left
         if (
-            isinstance(left, Interval) and isinstance(right, Interval) and
-            not (left.start > right.end or right.start > left.end)
+            left.__class__ is right.__class__ is Interval and
+            left.start <= right.end and right.start <= left.end
         ):
-            return self._new_interval(
-                min(left.start, right.start), max(left.end, right.end))
+            return self._new_interval(left.start, right.end)
         if (
-            isinstance(self, Split) and
+            self.__class__ is Split and
             prefix == self.prefix and mask == self.mask and left is self.left
             and right is self.right
         ):
