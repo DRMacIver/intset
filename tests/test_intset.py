@@ -55,10 +55,6 @@ IntSets = st.builds(
         IntSet.single) | intervals.map(lambda x: IntSet.interval(*x))
 
 
-def test_can_instantiate_inset_to_empty():
-    assert IntSet() == IntSet.empty()
-
-
 @example([
     [0, 1], [13356455824667928169, 13356455824667928173],
     [0, 13356455824667928169]])
@@ -86,20 +82,20 @@ def test_sequentially_removing_intervals_yields_empty(ls):
 @example(set([1, 2, 3]))
 @given(st.sets(integers_in_range))
 def test_instantiating_with_a_collection_gives_that_collection(xs):
-    ts = IntSet(xs)
+    ts = IntSet.from_iterable(xs)
     assert len(ts) == len(xs)
     assert set(ts) == xs
 
 
 def test_trying_to_pass_extra_args_to_intset_errors():
     with pytest.raises(TypeError):
-        IntSet(1, 2)
+        IntSet.from_iterable(1, 2)
 
 
-@example(IntSet([]), 1)
-@example(IntSet([]), -1)
-@example(IntSet([0]), -2)
-@example(IntSet([0]), 2)
+@example(IntSet.from_iterable([]), 1)
+@example(IntSet.from_iterable([]), -1)
+@example(IntSet.from_iterable([0]), -2)
+@example(IntSet.from_iterable([0]), 2)
 @given(IntSets, st.integers())
 def test_raises_index_error_out_of_bounds(x, i):
     assume(abs(i) > x.size())
@@ -113,9 +109,9 @@ SmallIntSets = st.builds(
              average_size=5)).filter(lambda x: x.size() <= SMALL)
 
 
-@example(IntSet(), IntSet([1]))
-@example(IntSet([2]), IntSet([1]))
-@example(IntSet([1, 2]), IntSet([1]))
+@example(IntSet.empty(), IntSet.from_iterable([1]))
+@example(IntSet.from_iterable([2]), IntSet.from_iterable([1]))
+@example(IntSet.from_iterable([1, 2]), IntSet.from_iterable([1]))
 @given(IntSets, IntSets)
 def test_ordering_method_consistency(x, y):
     assert (x <= y) == (not (x > y))
@@ -152,7 +148,7 @@ def test_deleting_the_largest_element_produces_a_smaller_intset(imp):
 
 
 @given(IntSets)
-@example(IntSet([0, 2]))
+@example(IntSet.from_iterable([0, 2]))
 def test_deleting_the_smallest_element_produces_a_larger_intset(imp):
     assume(imp.size() > 1)
     i = imp[0]
@@ -268,7 +264,7 @@ def test_unioning_a_value_in_includes_it(intervals, i):
     assert i in mp2
 
 
-@example(imp=IntSet([0, 2]))
+@example(imp=IntSet.from_iterable([0, 2]))
 @given(IntSets)
 def test_restricting_bounds_reduces_size_by_one(imp):
     assume(imp.size() > 0)
@@ -333,7 +329,7 @@ def test_sorts_as_lists(intsets):
 @example([IntSet.single(0), IntSet.single(0)])
 @example([IntSet.single(0), IntSet.empty()])
 @example([IntSet.interval(0, 2)])
-@example([IntSet([1, 3, 5])])
+@example([IntSet.from_iterable([1, 3, 5])])
 def test_hashes_correctly(intsets):
     as_set = set(intsets)
     for i in intsets:
@@ -359,12 +355,12 @@ def test_union_gives_union(x, y):
         assert (t in x) or (t in u)
 
 
-@example(IntSet([1, 2, 3]), IntSet([2, 4, 5]))
-@example(IntSet([0]), IntSet([0]))
-@example(IntSet([0]), IntSet([0, 1]))
-@example(IntSet([1, 0]), IntSet([0]))
-@example(IntSet([1, 0]), IntSet([4, 5]))
-@example(x=IntSet([0, 1]), y=IntSet([4, 5]))
+@example(IntSet.from_iterable([1, 2, 3]), IntSet.from_iterable([2, 4, 5]))
+@example(IntSet.from_iterable([0]), IntSet.from_iterable([0]))
+@example(IntSet.from_iterable([0]), IntSet.from_iterable([0, 1]))
+@example(IntSet.from_iterable([1, 0]), IntSet.from_iterable([0]))
+@example(IntSet.from_iterable([1, 0]), IntSet.from_iterable([4, 5]))
+@example(x=IntSet.from_iterable([0, 1]), y=IntSet.from_iterable([4, 5]))
 @given(SmallIntSets, SmallIntSets)
 def test_intersection_gives_intersection(x, y):
     assert set(x) & set(y) == set(x & y)
@@ -374,8 +370,8 @@ def test_intersection_gives_intersection(x, y):
 @example(IntSet.single(0), IntSet.single(0))
 @example(IntSet.single(0), IntSet.single(1))
 @example(IntSet.interval(0, 2), IntSet.single(1))
-@example(IntSet.single(1), IntSet([0, 2]))
-@example(IntSet.single(0), IntSet([0, 2, 3, 4]))
+@example(IntSet.single(1), IntSet.from_iterable([0, 2]))
+@example(IntSet.single(0), IntSet.from_iterable([0, 2, 3, 4]))
 @given(IntSets, IntSets)
 def test_disjoint_agrees_with_intersection(x, y):
     assert x.isdisjoint(y) == (not (x & y))
@@ -415,7 +411,7 @@ def test_adding_an_element_produces_a_superset(imp, i):
 
 
 @example(IntSet.empty(), IntSet.empty())
-@example(IntSet.single(0), IntSet([0, 2]))
+@example(IntSet.single(0), IntSet.from_iterable([0, 2]))
 @given(IntSets, IntSets)
 def test_subtracting_a_superset_is_empty(x, y):
     assume(x.issubset(y))
@@ -428,13 +424,13 @@ def test_subtracting_a_superset_is_empty(x, y):
         (0, 4611686018427387904), (4611686018427387904, 4611686018427387905),
         (4611686018427387906, 4611686018427387907)]))
 @example(IntSet.single(0), IntSet.empty())
-@example(IntSet.interval(0, 2), IntSet([0, 2]))
-@example(IntSet.interval(0, 3), IntSet([0, 2]))
-@example(IntSet.single(0), IntSet([1, 3]))
-@example(IntSet.interval(0, 3), IntSet([0, 2, 3, 4]))
-@example(IntSet.interval(0, 5), IntSet([0, 2]))
-@example(IntSet.single(1), IntSet([0, 2]))
-@example(IntSet.single(3), IntSet([0, 2]))
+@example(IntSet.interval(0, 2), IntSet.from_iterable([0, 2]))
+@example(IntSet.interval(0, 3), IntSet.from_iterable([0, 2]))
+@example(IntSet.single(0), IntSet.from_iterable([1, 3]))
+@example(IntSet.interval(0, 3), IntSet.from_iterable([0, 2, 3, 4]))
+@example(IntSet.interval(0, 5), IntSet.from_iterable([0, 2]))
+@example(IntSet.single(1), IntSet.from_iterable([0, 2]))
+@example(IntSet.single(3), IntSet.from_iterable([0, 2]))
 @given(IntSets, IntSets)
 def test_subtracting_a_non_superset_is_non_empty(x, y):
     assume(not x.issubset(y))
@@ -444,18 +440,19 @@ def test_subtracting_a_non_superset_is_non_empty(x, y):
 @example(IntSet.empty(), IntSet.empty())
 @example(IntSet.empty(), IntSet.single(0))
 @example(IntSet.single(0), IntSet.single(0))
-@example(IntSet.single(0), IntSet([0, 2]))
-@example(IntSet.single(1), IntSet([0, 2]))
-@example(IntSet.interval(0, 2), IntSet([0, 2]))
-@example(IntSet.interval(0, 2), IntSet([0, 1, 3]))
-@example(IntSet.interval(0, 5), IntSet([0, 2]))
-@example(IntSet.interval(2, 4), IntSet([0, 2]))
-@example(IntSet.interval(0, 2), IntSet([2, 3, 5]))
-@example(IntSet.interval(0, 3), IntSet([2, 3, 5]))
-@example(IntSet.interval(4, 7), IntSet([0, 1, 8]))
-@example(IntSet.interval(0, 5), IntSet([0, 2]))
+@example(IntSet.single(0), IntSet.from_iterable([0, 2]))
+@example(IntSet.single(1), IntSet.from_iterable([0, 2]))
+@example(IntSet.interval(0, 2), IntSet.from_iterable([0, 2]))
+@example(IntSet.interval(0, 2), IntSet.from_iterable([0, 1, 3]))
+@example(IntSet.interval(0, 5), IntSet.from_iterable([0, 2]))
+@example(IntSet.interval(2, 4), IntSet.from_iterable([0, 2]))
+@example(IntSet.interval(0, 2), IntSet.from_iterable([2, 3, 5]))
+@example(IntSet.interval(0, 3), IntSet.from_iterable([2, 3, 5]))
+@example(IntSet.interval(4, 7), IntSet.from_iterable([0, 1, 8]))
+@example(IntSet.interval(0, 5), IntSet.from_iterable([0, 2]))
 @example(
-    IntSet([2 ** 63 + 1, 2 ** 63 + 3]), IntSet([2 ** 62 + 1, 2 ** 62 + 3]))
+    IntSet.from_iterable([2 ** 63 + 1, 2 ** 63 + 3]),
+    IntSet.from_iterable([2 ** 62 + 1, 2 ** 62 + 3]))
 @given(SmallIntSets, SmallIntSets)
 def test_subtraction_gives_subtraction(x, y):
     assert set(x) - set(y) == set(x - y)
@@ -481,23 +478,23 @@ def test_associative_operators(f, x, y, z):
 
 @pytest.mark.parametrize('f', [op.and_, op.or_, op.xor])
 @example(IntSet.single(1), IntSet.single(0))
-@example(IntSet([0, 2]), IntSet.interval(0, 2))
-@example(IntSet([0, 2]), IntSet([0, 2, 3, 4]))
-@example(IntSet([0, 34, 35]), IntSet([0, 32, 33]))
+@example(IntSet.from_iterable([0, 2]), IntSet.interval(0, 2))
+@example(IntSet.from_iterable([0, 2]), IntSet.from_iterable([0, 2, 3, 4]))
+@example(IntSet.from_iterable([0, 34, 35]), IntSet.from_iterable([0, 32, 33]))
 @example(
-    IntSet([0, 9223372036854775811, 9223372036854775812]),
-    IntSet([0, 9223372036854775808, 9223372036854775809]))
+    IntSet.from_iterable([0, 9223372036854775811, 9223372036854775812]),
+    IntSet.from_iterable([0, 9223372036854775808, 9223372036854775809]))
 @example(
     IntSet.from_intervals(
         [(0, 1), (9223372036854775791, 9223372036854775792),
          (9223372036854775792, 9223372036854775808)]),
-    IntSet([9223372036854775808, 9223372036854775810]))
+    IntSet.from_iterable([9223372036854775808, 9223372036854775810]))
 @example(
     IntSet.from_intervals(
         [(0, 1), (9943224696285111261, 9943224696285111296),
          (9943224696285111296, 9943224696285111297)]),
-    IntSet([0, 9943224696285111296, 9943224696285111297]))
-@example(IntSet.interval(0, 2), IntSet([0, 1]))
+    IntSet.from_iterable([0, 9943224696285111296, 9943224696285111297]))
+@example(IntSet.interval(0, 2), IntSet.from_iterable([0, 1]))
 @given(SmallIntSets, SmallIntSets)
 def test_commutative_operators(f, x, y):
     assert f(x, y) == f(y, x)
@@ -523,7 +520,7 @@ def test_truthiness_is_non_emptiness(imp):
 
 @example(IntSet.single(1))
 @example(IntSet.empty())
-@example(IntSet([1, 3]))
+@example(IntSet.from_iterable([1, 3]))
 @example(IntSet.interval(1, 10))
 @example(IntSet.interval(1, 10) | IntSet.interval(20, 30))
 @given(IntSets)
@@ -534,7 +531,7 @@ def test_repr_evals_to_self(imp):
 @example(IntSet.empty())
 @example(IntSet.single(1))
 @example(IntSet.interval(1, 2))
-@example(IntSet([1, 3, 5]))
+@example(IntSet.from_iterable([1, 3, 5]))
 @given(SmallIntSets)
 def test_reversible_as_list(imp):
     assert list(reversed(imp)) == list(reversed(list(imp)))

@@ -13,29 +13,11 @@ __all__ = [
     'IntSet',
 ]
 
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod
 from collections import Sequence, Set
 
 
-class IntSetMeta(ABCMeta):
-
-    def __call__(self, *args, **kwargs):
-        if self != IntSet:
-            return super(IntSetMeta, self).__call__(*args, **kwargs)
-        if len(args) == 0:
-            return empty_intset
-        elif len(args) == 1:
-            result = empty_intset
-            for i in args[0]:
-                result = result.insert(i)
-            return result
-        else:
-            raise TypeError('IntSet expected at most 1 arguments, got %d' % (
-                len(args),
-            ))
-
-
-class IntSet(IntSetMeta('IntSet', (Sequence, Set), {})):
+class IntSet(object):
     """
     An IntSet is a compressed representation of a sorted list of unsigned
     64-bit integers with fast membership, union and range restriction.
@@ -65,6 +47,13 @@ class IntSet(IntSetMeta('IntSet', (Sequence, Set), {})):
             return empty_intset
         else:
             return Interval(start, end)
+
+    @classmethod
+    def from_iterable(self, values):
+        result = empty_intset
+        for i in values:
+            result = result.insert(i)
+        return result
 
     @classmethod
     def from_intervals(cls, intervals):
@@ -444,6 +433,9 @@ class IntSet(IntSetMeta('IntSet', (Sequence, Set), {})):
     def _new_interval(self, start, end):
         return IntSet.interval(start, end)
 
+Sequence.register(IntSet)
+Set.register(IntSet)
+
 
 class Empty(IntSet):
 
@@ -505,7 +497,7 @@ class Split(IntSet):
                 '(%d, %d)' % interval for interval in self.intervals()
             ))
         else:
-            return 'IntSet(%r)' % ([i for i, _ in intervals],)
+            return 'IntSet.from_iterable(%r)' % ([i for i, _ in intervals],)
 
     def insert(self, value):
         _validate_integer_in_range('value', value)
