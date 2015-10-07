@@ -1,0 +1,19 @@
+[run]
+branch = True
+include =
+    .tox/*/lib/*/site-packages/intset/*.py
+omit =
+    **/settings.py
+    **/pytestplugin.py
+    **/strategytests.py
+    **/internal/debug.py
+    **/compat.py
+    **/extra/__init__.py
+
+[report]
+exclude_lines =
+    @abstractmethod
+    @abstractproperty
+    NotImplementedError
+    pragma: no cover
+    __nonzero__
