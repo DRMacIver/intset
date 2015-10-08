@@ -95,6 +95,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
             self.wrapped = ()
             self.start = 0
             self.end = 0
+            self.intervals = []
 
         def insert(self, value):
             """Add a single value to the IntSet to be built."""
@@ -110,13 +111,9 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
         def insert_interval(self, start, end):
             """Add all values x such that start <= x < end to the IntSet to be
             built."""
-            if not (self.start >= end or start >= self.end):
-                self.start = min(start, self.start)
-                self.end = max(end, self.end)
-            else:
-                self._collapse()
-                self.start = start
-                self.end = end
+            if start >= end:
+                return
+            self.intervals.append((start, end))
 
         def build(self):
             """Produce a new IntSet with all the values previously inserted to
@@ -128,15 +125,18 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
             """
             self._collapse()
-            self.start = 0
-            self.end = 0
+            if self.intervals:
+                intervals = _normalize_intervals(self.intervals)
+                self.intervals = []
+                self.wrapped = _union(
+                    self.wrapped, _from_intervals(intervals))
             return IntSet._wrap(self.wrapped)
 
         def _collapse(self):
             if self.start < self.end:
-                self.wrapped = _union(
-                    self.wrapped, _new_interval(self.start, self.end)
-                )
+                self.intervals.append((self.start, self.end))
+                self.start = 0
+                self.end = 0
 
     def __getstate__(self):
         # wrap in a tuple because a falsey value will cause the corresponding
@@ -195,10 +195,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
     def from_intervals(cls, intervals):
         """Return a new IntSet which contains precisely the intervals passed
         in."""
-        builder = IntSet.Builder()
-        for ints in intervals:
-            builder.insert_interval(*ints)
-        return builder.build()
+        return cls._wrap(_from_intervals(_normalize_intervals(intervals)))
 
     def size(self):
         """This returns the same as len() when the latter is defined, but
@@ -498,6 +495,28 @@ def _discard(self, value):
             self[_PREFIX], self[_MASK],
             self[_LEFT], _discard(self[_RIGHT], value)
         )
+
+
+def _normalize_intervals(intervals):
+    intervals = sorted(intervals)
+    merged_intervals = []
+    for i, j in intervals:
+        if merged_intervals and i <= merged_intervals[-1][-1]:
+            merged_intervals[-1][-1] = max(
+                j, merged_intervals[-1][-1])
+        else:
+            merged_intervals.append([i, j])
+    return merged_intervals
+
+
+def _from_intervals(intervals):
+    if len(intervals) == 0:
+        return ()
+    if len(intervals) == 1:
+        return _new_maybe_empty_interval(*intervals[0])
+    k = len(intervals) // 2
+    return _union(
+        _from_intervals(intervals[:k]), _from_intervals(intervals[k:]))
 
 
 def _union(self, other):

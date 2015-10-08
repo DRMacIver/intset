@@ -17,13 +17,15 @@ from random import Random
 
 import hypothesis.strategies as st
 import pytest
-from hypothesis import assume, example, given
+from hypothesis import assume, example, given, Settings
 from hypothesis.stateful import Bundle, rule, RuleBasedStateMachine
 from intset import IntSet
 
 if os.getenv('HYPOTHESIS_PROFILE') == 'coverage':
-    from hypothesis import Settings
     Settings.default.max_examples = 0
+else:
+    Settings.default.max_examples = 1000
+    Settings.default.timeout = -1
 
 
 def test_not_equal_to_other_types():
@@ -92,6 +94,10 @@ def test_deepcopy_collapses_reference_equality():
     [5072311219282295775, 5072311219282295776], [0, 5072311219282295775]])
 @example([[2, 5], [0, 1]])
 @example([[0, 1], [0, 1]])
+@example([[257, 257], [256, 259], [258, 259], [0, 1]])
+@example([
+    [11545114544614188051, 11545114544614188052], [0, 11545114544614188049],
+    [11545114544614188049, 11545114544614188050]])
 @given(interval_list)
 def test_sequentially_removing_intervals_yields_empty(ls):
     running = IntSet.from_intervals(ls)
@@ -103,6 +109,13 @@ def test_sequentially_removing_intervals_yields_empty(ls):
         running -= inter
         assert running.size() == original - extra.size()
     assert running.size() == 0
+
+
+@example([[3289, 464934409800740276]], [[1030, 7287475383899201551]])
+@given(interval_list, interval_list)
+def test_concatenation_of_lists_is_union(x, y):
+    assert IntSet.from_intervals(x + y) == \
+        IntSet.from_intervals(x) | IntSet.from_intervals(y)
 
 
 @example(set())
@@ -362,6 +375,8 @@ def test_all_values_lie_between_bounds(imp):
 @example(x=IntSet.empty(), y=IntSet.single(0))
 @example(x=IntSet.single(0), y=IntSet.empty())
 @example(x=IntSet.single(0), y=IntSet.single(2))
+@example(x=IntSet([0, 2]), y=IntSet([1]))
+@example(x=IntSet([(514, 516)]), y=IntSet([(454, 513)]))
 @given(SmallIntSets, SmallIntSets)
 def test_union_gives_union(x, y):
     z = x | y
@@ -531,6 +546,7 @@ def test_associative_operators(f, x, y, z):
          (9943224696285111296, 9943224696285111297)]),
     IntSet.from_iterable([0, 9943224696285111296, 9943224696285111297]))
 @example(IntSet.interval(0, 2), IntSet.from_iterable([0, 1]))
+@example(IntSet([4, 6]), IntSet([0, 2]))
 @given(SmallIntSets, SmallIntSets)
 def test_commutative_operators(f, x, y):
     assert f(x, y) == f(y, x)
@@ -538,6 +554,7 @@ def test_commutative_operators(f, x, y):
 
 @example(IntSet.single(1), IntSet.single(0))
 @example(IntSet.empty(), IntSet.single(0))
+@example(x=IntSet([(8, 13)]), y=IntSet([0, 2]))
 @given(IntSets, SmallIntSets)
 def test_subtract_is_sequential_discard(x, y):
     expected = x
@@ -636,6 +653,14 @@ class SetModel(RuleBasedStateMachine):
     def subtract(self, x, y):
         return (x[0] - y[0], sorted(set(x[1]) - set(y[1])))
 
+    @rule(
+        target=intsets, x=intsets,
+        ints=st.lists(integers_in_range, min_size=1))
+    def insert_many(self, x, ints):
+        for i in ints:
+            x = self.insert(x, i)
+        return x
+
     @rule(target=intsets, x=intsets, i=values)
     def insert(self, x, i):
         return (x[0].insert(i), sorted(set(x[1] + [i])))
@@ -681,7 +706,47 @@ class SetModel(RuleBasedStateMachine):
                 assert source[0][0] <= v <= source[0][-1]
 
 
+@example([[1, 2], [2, 2], [0, 3]])
+@example([[0, 1], [0, 1]])
+@example([[1, 2], [2, 3], [0, 3]])
+@example([[2, 3], [0, 1], [0, 4]])
+@example([
+    [2, 15738258725653508269], [0, 1],
+    [15738258725653508269, 15738258725653508271]])
+@given(interval_list)
+def test_builder_insert_intervals_equivalent_to_successive_union(intervals):
+    builder = IntSet.Builder()
+    equiv = IntSet.empty()
+    for ij in intervals:
+        equiv |= IntSet.interval(*ij)
+        builder.insert_interval(*ij)
+    assert builder.build() == equiv
+
 TestState = SetModel.TestCase
+
+
+class BuilderModel(RuleBasedStateMachine):
+
+    def __init__(self):
+        self.builder = IntSet.Builder()
+        self.equivalent = IntSet.empty()
+
+    @rule(i=integers_in_range)
+    def insert(self, i):
+        self.builder.insert(i)
+        self.equivalent = self.equivalent.insert(i)
+
+    @rule(ij=intervals)
+    def insert_interval(self, ij):
+        self.builder.insert_interval(*ij)
+        self.equivalent = self.equivalent | IntSet.interval(*ij)
+
+    @rule()
+    def check(self):
+        assert self.builder.build() == self.equivalent
+
+
+TestBuilderState = BuilderModel.TestCase
 
 
 def test_validates_bounds():
