@@ -46,6 +46,10 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
     values. In particular, you can index it if it were, and it will sort and
     compare equal (to other IntSets) as if it were.
 
+    Note that unlike lists, intsets may feasibly have more than sys.maxint
+    elements, and calling len() on such an intset may raise an OverflowError.
+    If you wish to avoid this, use .size() instead.
+
     Because IntSet is immutable, unlike list it may also be used as a hash key.
 
     It also supports set operations. In particular, all the boolean operations
