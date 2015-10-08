@@ -93,27 +93,26 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
         def __init__(self):
             self.wrapped = ()
-            self.start = 0
-            self.end = 0
             self.intervals = []
 
         def insert(self, value):
             """Add a single value to the IntSet to be built."""
-            if value == self.end:
-                self.end += 1
-            elif value + 1 == self.start:
-                self.start -= 1
-            else:
-                self._collapse()
-                self.start = value
-                self.end = value + 1
+            if self.intervals:
+                last = self.intervals[-1]
+                if value == last[-1]:
+                    last[-1] += 1
+                    return
+                elif value + 1 == last[0]:
+                    last[0] -= 1
+                    return
+            self.intervals.append([value, value + 1])
 
         def insert_interval(self, start, end):
             """Add all values x such that start <= x < end to the IntSet to be
             built."""
             if start >= end:
                 return
-            self.intervals.append((start, end))
+            self.intervals.append([start, end])
 
         def build(self):
             """Produce a new IntSet with all the values previously inserted to
@@ -124,19 +123,12 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
             built values will be unaffected by subsequent inserts
 
             """
-            self._collapse()
             if self.intervals:
                 intervals = _normalize_intervals(self.intervals)
                 self.intervals = []
                 self.wrapped = _union(
                     self.wrapped, _from_intervals(intervals))
             return IntSet._wrap(self.wrapped)
-
-        def _collapse(self):
-            if self.start < self.end:
-                self.intervals.append((self.start, self.end))
-                self.start = 0
-                self.end = 0
 
     def __getstate__(self):
         # wrap in a tuple because a falsey value will cause the corresponding
@@ -195,7 +187,8 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
     def from_intervals(cls, intervals):
         """Return a new IntSet which contains precisely the intervals passed
         in."""
-        return cls._wrap(_from_intervals(_normalize_intervals(intervals)))
+        return cls._wrap(
+            _from_intervals(_normalize_intervals(list(map(list, intervals)))))
 
     def size(self):
         """This returns the same as len() when the latter is defined, but
@@ -405,6 +398,10 @@ def _new_split_maybe_empty(prefix, mask, left, right):
 def _new_split(prefix, mask, left, right):
     if left[_SIZE] + right[_SIZE] + left[_START] == right[_END]:
         return _new_interval(left[_START], right[_END])
+    return _new_split_no_collapse(prefix, mask, left, right)
+
+
+def _new_split_no_collapse(prefix, mask, left, right):
     return (
         left[_START], right[_END],
         left[_SIZE] + right[_SIZE], prefix, mask, left, right
@@ -498,27 +495,33 @@ def _discard(self, value):
 
 
 def _normalize_intervals(intervals):
-    intervals = sorted(map(tuple, intervals))
+    intervals.sort()
     merged_intervals = []
-    for i, j in intervals:
-        if merged_intervals and i <= merged_intervals[-1][-1]:
-            merged_intervals[-1][-1] = max(
-                j, merged_intervals[-1][-1])
-        else:
-            merged_intervals.append([i, j])
+    for x in intervals:
+        if x[0] >= x[1]:
+            continue
+        if merged_intervals:
+            last = merged_intervals[-1]
+            if x[0] <= last[-1]:
+                last[-1] = max(x[1], last[-1])
+                continue
+        merged_intervals.append(x)
     return merged_intervals
 
 
 def _from_intervals(intervals):
     if len(intervals) == 0:
         return ()
+    else:
+        return _from_intervals_worker(intervals)
+
+
+def _from_intervals_worker(intervals):
     if len(intervals) == 1:
-        return _new_maybe_empty_interval(*intervals[0])
+        return _new_interval(*intervals[0])
     start = intervals[0][0]
     end = intervals[-1][-1]
-    e1 = end - 1
-    assert e1 > start
-    split_mask = branch_mask(start, e1)
+    split_mask = branch_mask(start, end - 1)
     split_prefix = _mask_off(start, split_mask)
     split_point = split_prefix | split_mask
     left = []
@@ -531,10 +534,9 @@ def _from_intervals(intervals):
             right.append([split_point, x[1]])
         else:
             right.append(x)
-    assert left
-    assert right
-    return _new_split_maybe_empty(
-        split_prefix, split_mask, _from_intervals(left), _from_intervals(right)
+    return _new_split_no_collapse(
+        split_prefix, split_mask,
+        _from_intervals_worker(left), _from_intervals_worker(right)
     )
 
 
