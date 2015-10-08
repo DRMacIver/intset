@@ -38,7 +38,7 @@ setup(
     package_dir={"": SOURCE},
     url='https://github.com/DRMacIver/intset',
     license='MPL v2',
-    description='A library for property based testing',
+    description='Efficient representations of large sets of integers',
     zip_safe=False,
     classifiers=[
         "Development Status :: 5 - Production/Stable",
