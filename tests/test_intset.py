@@ -51,12 +51,16 @@ IntSets = st.builds(
         IntSet.single) | intervals.map(lambda x: IntSet.interval(*x))
 
 
+@example(IntSet.empty())
+@example(IntSet.single(1))
+@example(IntSet([1, 2, 3, 6]))
 @given(IntSets)
 def test_pickling_works_correctly(x):
     assert pickle.loads(pickle.dumps(x)) == x
 
 
 @example(IntSet.interval(0, 10))
+@example(IntSet([(0, 10), (15, 20)]))
 @given(IntSets)
 def test_copies_as_self(x):
     assert copy(x) is x
@@ -87,6 +91,7 @@ def test_deepcopy_collapses_reference_equality():
     [5072311219282295777, 5072311219282295778],
     [5072311219282295775, 5072311219282295776], [0, 5072311219282295775]])
 @example([[2, 5], [0, 1]])
+@example([[0, 1], [0, 1]])
 @given(interval_list)
 def test_sequentially_removing_intervals_yields_empty(ls):
     running = IntSet.from_intervals(ls)
@@ -568,6 +573,7 @@ def test_reversible_as_list(imp):
     assert list(reversed(imp)) == list(reversed(list(imp)))
 
 
+@example(IntSet.empty(), IntSet.empty())
 @given(IntSets, IntSets)
 def test_subtraction_is_intersection_with_complement(x, y):
     assert x - y == (x & ~y)
