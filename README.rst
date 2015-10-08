@@ -13,3 +13,5 @@ a sorted list of deduplicated integers.
 The implementation is heavily based on `Fast Mergeable Integer Maps <ittc.ku.edu/~andygill/papers/IntMap98.pdf>`_
 by Okasaki and Gill, but it has been adapted to support a somewhat different feature
 set and a more compact representation for certain usage patterns.
+
+For usage, see the `API documentation <http://intset.readthedocs.org/en/latest/>`_.
