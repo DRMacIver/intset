@@ -10,7 +10,7 @@ integers takes only a handful of bytes.
 Their behaviour and API are somehwere in between that of frozenset and that of
 a sorted list of deduplicated integers.
 
-The implementation is heavily based on `Fast Mergeable Integer Maps <ittc.ku.edu/~andygill/papers/IntMap98.pdf>`_
+The implementation is heavily based on `Fast Mergeable Integer Maps <http://ittc.ku.edu/~andygill/papers/IntMap98.pdf>`_
 by Okasaki and Gill, but it has been adapted to support a somewhat different feature
 set and a more compact representation for certain usage patterns.
 
