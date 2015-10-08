@@ -8,16 +8,36 @@
 # v. 2.0. If a copy of the MPL was not distributed with this file, You can
 # obtain one at http://mozilla.org/MPL/2.0/.
 
-
 __all__ = [
     'IntSet',
 ]
 
-from abc import abstractmethod
 from collections import Sequence, Set
 
 
-class IntSet(object):
+class IntSetMeta(type):
+
+    def __call__(self, *args, **kwargs):
+        if len(args) == 0:
+            return self._wrap(())
+        elif len(args) == 1:
+            result = IntSet.Builder()
+            for i in args[0]:
+                try:
+                    result.insert(i)
+                except TypeError:
+                    result.insert_interval(*i)
+            return result.build()
+        else:
+            raise TypeError('IntSet expected at most 1 arguments, got %d' % (
+                len(args),
+            ))
+
+    def _wrap(self, value):
+        return type.__call__(self, value)
+
+
+class IntSet(IntSetMeta('IntSet', (object,), {})):
     """
     An IntSet is a compressed immutable representation of a sorted list of
     unsigned 64-bit integers with fast membership, union and range restriction.
@@ -44,19 +64,70 @@ class IntSet(object):
             won't allocate 2 ** 64 integers worth of memory).
     """
 
-    __slots__ = ()
+    __slots__ = ('wrapped')
+
+    class Builder(object):
+
+        def __init__(self):
+            self.wrapped = ()
+            self.start = 0
+            self.end = 0
+
+        def insert(self, value):
+            if value == self.end:
+                self.end += 1
+            elif value + 1 == self.start:
+                self.start -= 1
+            else:
+                self._collapse()
+                self.start = value
+                self.end = value + 1
+
+        def _collapse(self):
+            if self.start < self.end:
+                self.wrapped = _union(
+                    self.wrapped, _new_interval(self.start, self.end)
+                )
+
+        def insert_interval(self, start, end):
+            if not (self.start >= end or start >= self.end):
+                self.start = min(start, self.start)
+                self.end = max(end, self.end)
+            else:
+                self._collapse()
+                self.start = start
+                self.end = end
+
+        def build(self):
+            self._collapse()
+            self.start = 0
+            self.end = 0
+            return IntSet._wrap(self.wrapped)
+
+    def __init__(self, wrapped):
+        assert isinstance(wrapped, tuple)
+        self.wrapped = wrapped
+
+    def __repr__(self):
+        bits = []
+        for i, j in self.intervals():
+            if i + 1 < j:
+                bits.append((i, j))
+            else:
+                bits.append(i)
+        return 'IntSet(%r)' % (bits,)
 
     @classmethod
     def empty(cls):
         """Return an empty IntSet."""
-        return empty_intset
+        return IntSet._wrap(())
 
     @classmethod
     def single(cls, value):
         """Return an IntSet containing only the single value provided."""
         _validate_integer_in_range('value', value)
         _validate_integer_in_range('value + 1', value + 1)
-        return _single(value)
+        return IntSet._wrap(_new_single(value))
 
     @classmethod
     def interval(cls, start, end):
@@ -67,37 +138,40 @@ class IntSet(object):
         _validate_integer_in_range('start', start)
         if end != 0:
             _validate_integer_in_range('end - 1', end - 1)
-        return _interval(start, end)
+        return IntSet._wrap(_new_maybe_empty_interval(start, end))
 
     @classmethod
     def from_iterable(self, values):
         """Return an IntSet containing everything in values, which should be an
         iterable over intsets in the valid range."""
-        result = empty_intset
+        builder = IntSet.Builder()
         for i in values:
-            result = result.insert(i)
-        return result
+            builder.insert(i)
+        return builder.build()
 
     @classmethod
     def from_intervals(cls, intervals):
         """Return a new IntSet which contains precisely the intervals passed
         in."""
-        base = empty_intset
+        builder = IntSet.Builder()
         for ints in intervals:
-            base |= cls.interval(*ints)
-        return base
+            builder.insert_interval(*ints)
+        return builder.build()
 
     def size(self):
         """This returns the same as len() when the latter is defined, but
         IntSet may have more values than will fit in the size of index that len
         will allow."""
-        return self._size
+        if self.wrapped:
+            return self.wrapped[_SIZE]
+        else:
+            return 0
 
     def insert(self, value):
         """Returns an IntSet which contains all the values of the current one
         plus the provided value."""
         _validate_integer_in_range('value', value)
-        return self._insert(value)
+        return IntSet._wrap(_insert(self.wrapped, value))
 
     def discard(self, value):
         """Returns an IntSet which contains all the values of the current one
@@ -108,18 +182,18 @@ class IntSet(object):
 
         """
         _validate_integer_in_range('value', value)
-        return self._discard(value)
+        return IntSet._wrap(_discard(self.wrapped, value))
 
-    @abstractmethod
     def restrict(self, start, end):
         """Return a new IntSet with all values x in self such that start <=
         x < end."""
+        return IntSet._wrap(_restrict(self.wrapped, start, end))
 
     def __len__(self):
-        return self._size
+        return self.size()
 
     def __bool__(self):
-        return self._size > 0
+        return bool(self.wrapped)
 
     def __nonzero__(self):
         return self.__bool__()
@@ -129,7 +203,7 @@ class IntSet(object):
             return True
         if not isinstance(other, IntSet):
             return False
-        if self._size != other._size:
+        if self.size() != other.size():
             return False
         return self.__cmp__(other) == 0
 
@@ -171,16 +245,7 @@ class IntSet(object):
         return self.__cmp__(other) >= 0
 
     def __contains__(self, i):
-        if isinstance(self, Empty):
-            return False
-        while not isinstance(self, Interval):
-            assert isinstance(self, Split)
-            if _is_zero(i, self.mask):
-                self = self.left
-            else:
-                self = self.right
-        assert isinstance(self, Interval)
-        return self.start <= i < self.end
+        return _contains(self.wrapped, i)
 
     def __iter__(self):
         for start, end in self.intervals():
@@ -188,27 +253,18 @@ class IntSet(object):
                 yield i
 
     def __getitem__(self, i):
-        if i < -self._size or i >= self._size:
+        size = self.size()
+        if i < -size or i >= size:
             raise IndexError('IntSet index %d out of range for size %d' % (
-                i, self._size,
+                i, size,
             ))
         if i < 0:
-            i += self._size
+            i += size
         assert i >= 0
-        while isinstance(self, Split):
-            if i < self.left._size:
-                self = self.left
-            else:
-                i -= self.left._size
-                self = self.right
-        assert isinstance(self, Interval)
-        assert 0 <= i < self._size
-        return self.start + i
+        return _getitem(self.wrapped, i)
 
     def __hash__(self):
-        return hash((
-            self._size, self.start, self.end
-        ))
+        return hash(self.wrapped[:3])
 
     def __copy__(self):
         return self
@@ -218,209 +274,35 @@ class IntSet(object):
 
     def isdisjoint(self, other):
         """Returns True if self and other have no common elements."""
-        if not (self and other):
-            return True
-        if self.start >= other.end:
-            return True
-        if other.start >= self.end:
-            return True
-        if isinstance(self, Interval) and isinstance(other, Interval):
-            return False
-        if isinstance(self, Interval):
-            other, self = self, other
-        assert isinstance(self, Split)
-        return self.left.isdisjoint(other) and self.right.isdisjoint(other)
+        return _isdisjoint(self.wrapped, other.wrapped)
 
     def intersects(self, other):
         """Returns True if there is an element i such that i in self and i in
-        other"""
+        other."""
         return not self.isdisjoint(other)
 
     def issubset(self, other):
-        """Returns True if every element of self is also in other."""
-        if not self:
-            return True
-        if not other:
-            return False
-        if isinstance(other, Interval):
-            return other.start <= self.start < self.end <= other.end
-        if self.start >= other.end:
-            return False
-        if other.start >= self.end:
-            return False
-        if isinstance(self, Interval):
-            if self._size == 1:
-                return self.start in other
-            elif self._size == 2:
-                return self.start in other and self.end - 1 in other
-            self = self._split_interval()
-        assert isinstance(self, Split)
-        assert isinstance(other, Split)
-        if _shorter(self.mask, other.mask):
-            return False
-        elif _shorter(other.mask, self.mask):
-            if _is_zero(self.prefix, other.mask):
-                return self.issubset(other.left)
-            else:
-                return self.issubset(other.right)
-        else:
-            # If they have incompatible prefixes the above start/end checks
-            # must have returned False already because they're actually
-            # disjoint.
-            assert self.prefix == other.prefix
-            return (
-                self.left.issubset(other.left) and
-                self.right.issubset(other.right))
+        return _issubset(self.wrapped, other.wrapped)
 
     def issuperset(self, other):
-        """Returns True if every element of other is also in self"""
+        """Returns True if every element of other is also in self."""
         return other.issubset(self)
 
     def __and__(self, other):
-        if min(self._size, other._size) == 0:
-            return empty_intset
-        if self._size > other._size:
-            self, other = other, self
-        if self._size == 1:
-            if self.start in other:
-                return self
-            else:
-                return empty_intset
-        if isinstance(self, Interval):
-            return other.restrict(self.start, self.end)
-        if isinstance(other, Interval):
-            return self.restrict(other.start, other.end)
-        assert isinstance(self, Split)
-        assert isinstance(other, Split)
-        if self.start > other.end:
-            return empty_intset
-        if self.end < other.start:
-            return empty_intset
-        if _shorter(other.mask, self.mask):
-            self, other = other, self
-        if _shorter(self.mask, other.mask):
-            if _no_match(other.prefix, self.prefix, self.mask):
-                return empty_intset
-            elif _is_zero(other.prefix, self.mask):
-                return self.left & other
-            else:
-                return self.right & other
-        else:
-            assert self.mask == other.mask
-            if self.prefix == other.prefix:
-                return self._new_split(
-                    self.prefix, self.mask,
-                    self.left & other.left,
-                    self.right & other.right
-                )
-            else:
-                return empty_intset
+        assert isinstance(other, IntSet)
+        return IntSet._wrap(_intersect(self.wrapped, other.wrapped))
 
     def __invert__(self):
         return whole_range - self
 
     def __sub__(self, other):
-        if other._size == 0:
-            return self
-        if self._size == 0:
-            return self
-        if isinstance(other, Interval):
-            return self.restrict(self.start, other.start) | \
-                self.restrict(other.end, self.end)
-        if self._size == 1:
-            if self.start in other:
-                return empty_intset
-            else:
-                return self
-        if isinstance(self, Interval):
-            self = self._split_interval()
-        assert isinstance(self, Split)
-        assert isinstance(other, Split)
-        if _shorter(self.mask, other.mask):
-            if _no_match(other.prefix, self.prefix, self.mask):
-                return self
-            elif _is_zero(other.prefix, self.mask):
-                return self._new_split(
-                    self.prefix, self.mask, self.left - other, self.right
-                )
-            else:
-                return self._new_split(
-                    self.prefix, self.mask, self.left, self.right - other
-                )
-        elif _shorter(other.mask, self.mask):
-            if _is_zero(self.prefix, other.mask):
-                return self - other.left
-            else:
-                return self - other.right
-        else:
-            if self.prefix == other.prefix:
-                return self._new_split(
-                    self.prefix, self.mask,
-                    self.left - other.left,
-                    self.right - other.right
-                )
-            else:
-                return self
+        return IntSet._wrap(_subtract(self.wrapped, other.wrapped))
 
     def __xor__(self, other):
         return (self | other) - (self & other)
 
     def __or__(self, other):
-        if self._size == 0:
-            return other
-        if other._size == 0:
-            return self
-        if other._size > self._size:
-            other, self = self, other
-        if isinstance(self, Interval) and isinstance(other, Interval):
-            if not (self.start > other.end or other.start > self.end):
-                return self._new_interval(
-                    min(self.start, other.start), max(self.end, other.end))
-            elif self._size > 1:
-                return self._split_interval() | other
-            else:
-                assert self._size == other._size == 1
-                return _join(self.start, self, other.start, other)
-        if isinstance(other, Interval):
-            if other.start <= self.start < self.end <= other.end:
-                return other
-        if isinstance(self, Interval):
-            if self.start <= other.start < other.end <= self.end:
-                return self
-        if isinstance(other, Interval):
-            if other._size == 1:
-                return self._insert(other.start)
-            else:
-                other = other._split_interval()
-        if isinstance(self, Interval):
-            self = self._split_interval()
-        assert isinstance(self, Split)
-        assert isinstance(other, Split)
-        if _shorter(other.mask, self.mask):
-            self, other = other, self
-        if _shorter(self.mask, other.mask):
-            if _no_match(other.prefix, self.prefix, self.mask):
-                return _join(
-                    self.prefix, self, other.prefix, other
-                )
-            elif _is_zero(other.prefix, self.mask):
-                return self._new_split(
-                    self.prefix, self.mask, self.left | other, self.right
-                )
-            else:
-                return self._new_split(
-                    self.prefix, self.mask, self.left, self.right | other
-                )
-        else:
-            assert self.mask == other.mask
-            if self.prefix == other.prefix:
-                return self._new_split(
-                    self.prefix, self.mask,
-                    self.left | other.left,
-                    self.right | other.right
-                )
-            else:
-                return _join(self.prefix, self, other.prefix, other)
+        return IntSet._wrap(_union(self.wrapped, other.wrapped))
 
     def intervals(self):
         """
@@ -428,224 +310,391 @@ class IntSet(object):
         represent non-overlapping intervals such that for any start <= x < end
         x in self
         """
-        stack = [self]
-        while stack:
-            head = stack.pop()
-            if isinstance(head, Interval):
-                yield (head.start, head.end)
-            elif isinstance(head, Split):
-                stack.append(head.right)
-                stack.append(head.left)
+        return _intervals(self.wrapped)
 
     def reversed_intervals(self):
         """Iterator over the reverse of intervals()"""
-        stack = [self]
-        while stack:
-            head = stack.pop()
-            if isinstance(head, Interval):
-                yield (head.start, head.end)
-            elif isinstance(head, Split):
-                stack.append(head.left)
-                stack.append(head.right)
+        return _reversed_intervals(self.wrapped)
 
     def __reversed__(self):
         for start, end in self.reversed_intervals():
             for i in range(end - 1, start - 1, -1):
                 yield i
 
-    @abstractmethod
-    def _insert(self, value):
-        """Implementation of insert."""
-
-    @abstractmethod
-    def _discard(self, value):
-        """Implementation of discard."""
-
-    def _new_split(self, prefix, mask, left, right):
-        if left._size == 0:
-            return right
-        if right._size == 0:
-            return left
-        if (
-            left.__class__ is right.__class__ is Interval and
-            left.start <= right.end and right.start <= left.end
-        ):
-            return self._new_interval(left.start, right.end)
-        if (
-            self.__class__ is Split and
-            left is self.left and right is self.right and
-            prefix == self.prefix and mask == self.mask
-        ):
-            return self._compress()
-        return Split(
-            prefix=prefix, mask=mask, left=left, right=right)._compress()
-
-    def _new_interval(self, start, end):
-        return _interval(start, end)
 
 Sequence.register(IntSet)
 Set.register(IntSet)
 
 
-class Empty(IntSet):
-    __slots__ = ()
-
-    _size = 0
-
-    def __init__(self):
-        pass
-
-    def __hash__(self):
-        return 0
-
-    def _insert(self, value):
-        return _single(value)
-
-    def _discard(self, value):
-        return self
-
-    def restrict(self, start, end):
-        return self
-
-    def __repr__(self):
-        return 'IntSet.empty()'
+def _new_maybe_empty_interval(start, end):
+    if end <= start:
+        return ()
+    return _new_interval(start, end)
 
 
-empty_intset = Empty()
+_START = 0
+_END = 1
+_SIZE = 2
+_PREFIX = 3
+_MASK = 4
+_LEFT = 5
+_RIGHT = 6
+
+_INTERVAL_LENGTH = 3
+_SPLIT_LENGTH = 7
 
 
-class Split(IntSet):
-    __slots__ = ('prefix', 'mask', 'left', 'right', '_size', 'start', 'end')
+def _new_interval(start, end):
+    return (start, end, end - start)
 
-    def __init__(self, prefix, mask, left, right):
-        self.mask = mask
-        self.prefix = prefix
-        self.left = left
-        self.right = right
-        self._size = left._size + right._size
-        self.start = left.start
-        self.end = right.end
 
-    def _compress(self):
-        if self.end == self.start + self._size:
-            return _interval(self.start, self.end)
+def _new_single(value):
+    return (value, value + 1, 1)
+
+
+def _new_split_maybe_empty(prefix, mask, left, right):
+    if len(left) == 0:
+        return right
+    if len(right) == 0:
+        return left
+    return _new_split(prefix, mask, left, right)
+
+
+def _new_split(prefix, mask, left, right):
+    if left[_SIZE] + right[_SIZE] + left[_START] == right[_END]:
+        return _new_interval(left[_START], right[_END])
+    return (
+        left[_START], right[_END],
+        left[_SIZE] + right[_SIZE], prefix, mask, left, right
+    )
+
+
+def _split_interval(ins):
+    start = ins[_START]
+    end = ins[_END]
+    split_mask = branch_mask(start, end - 1)
+    split_prefix = _mask_off(start, split_mask)
+    split_point = split_prefix | split_mask
+    return (
+        start, end, ins[_SIZE], split_prefix, split_mask,
+        _new_interval(start, split_point), _new_interval(split_point, end)
+    )
+
+
+def _join(p1, t1, p2, t2):
+    m = branch_mask(p1, p2)
+    p = _mask_off(p1, m)
+    if not _is_zero(p1, m):
+        t1, t2 = t2, t1
+    return _new_split(p, m, t1, t2)
+
+
+def _insert(ins, value):
+    l = len(ins)
+    if l == 0:
+        return _new_single(value)
+    elif l == _INTERVAL_LENGTH:
+        start = ins[_START]
+        end = ins[_END]
+        if start <= value < end:
+            return ins
+        elif value == end:
+            return _new_interval(start, end + 1)
+        elif value + 1 == start:
+            return _new_interval(value, end)
+        elif ins[_SIZE] == 1:
+            return _join(start, ins, value, _new_single(value))
         else:
+            ins = _split_interval(ins)
+    prefix = ins[_PREFIX]
+    mask = ins[_MASK]
+    if _no_match(value, prefix, mask):
+        return _join(
+            value, _new_single(value),
+            prefix, ins
+        )
+    elif _is_zero(value, mask):
+        return _new_split(
+            prefix, mask, _insert(ins[_LEFT], value), ins[_RIGHT])
+    else:
+        return _new_split(
+            prefix, mask, ins[_LEFT], _insert(ins[_RIGHT], value))
+
+
+def _getitem(self, i):
+    while len(self) > _INTERVAL_LENGTH:
+        if i < self[_LEFT][_SIZE]:
+            self = self[_LEFT]
+        else:
+            i -= self[_LEFT][_SIZE]
+            self = self[_RIGHT]
+    return self[_START] + i
+
+
+def _discard(self, value):
+    l = len(self)
+    if l == 0:
+        return self
+    elif l == _INTERVAL_LENGTH:
+        if value < self[_START] or value >= self[_END]:
             return self
+        if value == self[_START]:
+            return _new_maybe_empty_interval(self[_START] + 1, self[_END])
+        if value + 1 == self[_END]:
+            return _new_maybe_empty_interval(self[_START], self[_END] - 1)
+        self = _split_interval(self)
+    if _is_zero(value, self[_MASK]):
+        return _new_split_maybe_empty(
+            self[_PREFIX], self[_MASK],
+            _discard(self[_LEFT], value), self[_RIGHT]
+        )
+    else:
+        return _new_split_maybe_empty(
+            self[_PREFIX], self[_MASK],
+            self[_LEFT], _discard(self[_RIGHT], value)
+        )
 
-    def __repr__(self):
-        intervals = list(self.intervals())
-        if any(i + 1 < j for i, j in intervals):
-            return 'IntSet.from_intervals([%s])' % (', '.join(
-                '(%d, %d)' % interval for interval in self.intervals()
-            ))
+
+def _union(self, other):
+    if len(self) == 0:
+        return other
+    if len(other) == 0:
+        return self
+    if other[_SIZE] > self[_SIZE]:
+        self, other = other, self
+    if len(self) == _INTERVAL_LENGTH:
+        if self[_START] <= other[_START] and other[_END] <= self[_END]:
+            return self
+        if len(other) == _INTERVAL_LENGTH:
+            if self[_START] <= other[_END] and other[_START] <= self[_END]:
+                return _new_interval(
+                    min(self[_START], other[_START]),
+                    max(self[_END], other[_END]),
+                )
+            elif self[_SIZE] > 1:
+                return _union(_split_interval(self), other)
+            else:
+                return _join(self[_START], self, other[_START], other)
+    if len(other) == _INTERVAL_LENGTH:
+        if other[_SIZE] == 1:
+            return _insert(self, other[_START])
         else:
-            return 'IntSet.from_iterable(%r)' % ([i for i, _ in intervals],)
-
-    def _insert(self, value):
-        if _no_match(value, self.prefix, self.mask):
+            other = _split_interval(other)
+    if len(self) == _INTERVAL_LENGTH:
+        self = _split_interval(self)
+    if _shorter(other[_MASK], self[_MASK]):
+        self, other = other, self
+    if _shorter(self[_MASK], other[_MASK]):
+        if _no_match(other[_PREFIX], self[_PREFIX], self[_MASK]):
             return _join(
-                value, _single(value),
-                self.prefix, self
+                self[_PREFIX], self, other[_PREFIX], other
             )
-        elif _is_zero(value, self.mask):
-            return self._new_split(
-                prefix=self.prefix, mask=self.mask,
-                left=self.left._insert(value),
-                right=self.right,
+        elif _is_zero(other[_PREFIX], self[_MASK]):
+            return _new_split(
+                self[_PREFIX], self[_MASK],
+                _union(self[_LEFT], other), self[_RIGHT]
             )
         else:
-            return self._new_split(
-                prefix=self.prefix, mask=self.mask,
-                left=self.left,
-                right=self.right._insert(value),
+            return _new_split(
+                self[_PREFIX], self[_MASK],
+                self[_LEFT], _union(self[_RIGHT], other)
             )
-
-    def _discard(self, value):
-        if _is_zero(value, self.mask):
-            return self._new_split(
-                prefix=self.prefix, mask=self.mask,
-                left=self.left.discard(value), right=self.right
+    else:
+        assert self[_MASK] == other[_MASK]
+        if self[_PREFIX] == other[_PREFIX]:
+            return _new_split(
+                self[_PREFIX], self[_MASK],
+                _union(self[_LEFT], other[_LEFT]),
+                _union(self[_RIGHT], other[_RIGHT])
             )
         else:
-            return self._new_split(
-                prefix=self.prefix, mask=self.mask,
-                left=self.left, right=self.right.discard(value)
+            return _join(self[_PREFIX], self, other[_PREFIX], other)
+
+
+def _restrict(self, start, end):
+    if not self:
+        return self
+    if start >= self[_END] or self[_START] >= end:
+        return ()
+    if len(self) == _INTERVAL_LENGTH:
+        return _new_interval(
+            max(start, self[_START]), min(end, self[_END]))
+    return _new_split_maybe_empty(
+        self[_PREFIX], self[_MASK],
+        _restrict(self[_LEFT], start, end),
+        _restrict(self[_RIGHT], start, end),
+    )
+
+
+def _contains(self, value):
+    if not self:
+        return False
+    while len(self) != _INTERVAL_LENGTH:
+        if _is_zero(value, self[_MASK]):
+            self = self[_LEFT]
+        else:
+            self = self[_RIGHT]
+    return self[_START] <= value < self[_END]
+
+
+def _intersect(self, other):
+    if not (self and other):
+        return ()
+    if self[_SIZE] > other[_SIZE]:
+        self, other = other, self
+    if other[_SIZE] == 1:
+        if _contains(self, other[_START]):
+            return other
+        else:
+            return ()
+    if len(self) == _INTERVAL_LENGTH:
+        return _restrict(other, self[_START], self[_END])
+    if len(other) == _INTERVAL_LENGTH:
+        return _restrict(self, other[_START], other[_END])
+    if self[_START] > other[_END]:
+        return ()
+    if self[_END] < other[_START]:
+        return ()
+    if _shorter(other[_MASK], self[_MASK]):
+        self, other = other, self
+    if _shorter(self[_MASK], other[_MASK]):
+        if _no_match(other[_PREFIX], self[_PREFIX], self[_MASK]):
+            return ()
+        elif _is_zero(other[_PREFIX], self[_MASK]):
+            return _intersect(self[_LEFT], other)
+        else:
+            return _intersect(self[_RIGHT], other)
+    else:
+        assert self[_MASK] == other[_MASK]
+        if self[_PREFIX] == other[_PREFIX]:
+            return _new_split_maybe_empty(
+                self[_PREFIX], self[_MASK],
+                _intersect(self[_LEFT], other[_LEFT]),
+                _intersect(self[_RIGHT], other[_RIGHT])
             )
-
-    def restrict(self, start, end):
-        if (start <= self.start) and (self.end <= end):
-            return self
-        if start > self.end:
-            return empty_intset
-        if end < self.start:
-            return empty_intset
-        return self._new_split(
-            mask=self.mask, prefix=self.prefix,
-            left=self.left.restrict(start, end),
-            right=self.right.restrict(start, end),
-        )
-
-
-class Interval(IntSet):
-    __slots__ = ('_size', 'start', 'end')
-
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
-        self._size = end - start
-
-    def __repr__(self):
-        if self._size == 1:
-            return 'IntSet.single(%d)' % (self.start,)
         else:
-            return 'IntSet.interval(%d, %d)' % (self.start, self.end)
+            return ()
 
-    def _insert(self, value):
-        if self.start <= value < self.end:
-            return self
-        elif self._size == 1:
-            return _join(self.start, self, value, _single(value))
-        elif value + 1 == self.start:
-            return _interval(self.start - 1, self.end)
-        elif value == self.end:
-            return _interval(self.start, self.end + 1)
+
+def _subtract(self, other):
+    if not (other and self):
+        return self
+    if len(other) == _INTERVAL_LENGTH:
+        return _union(
+            _restrict(self, self[_START], other[_START]),
+            _restrict(self, other[_END], self[_END]))
+    if self[_SIZE] == 1:
+        if _contains(other, self[_START]):
+            return ()
         else:
-            return self._split_interval()._insert(value)
-
-    def _discard(self, value):
-        if value < self.start or value >= self.end:
             return self
-        if value == self.start:
-            return _interval(self.start + 1, self.end)
-        if value + 1 == self.end:
-            return _interval(self.start, self.end - 1)
-        return self._split_interval().discard(value)
-
-    def restrict(self, start, end):
-        if start <= self.start < self.end <= end:
+    if len(self) == _INTERVAL_LENGTH:
+        self = _split_interval(self)
+    if _shorter(self[_MASK], other[_MASK]):
+        if _no_match(other[_PREFIX], self[_PREFIX], self[_MASK]):
             return self
+        elif _is_zero(other[_PREFIX], self[_MASK]):
+            return _new_split_maybe_empty(
+                self[_PREFIX], self[_MASK],
+                _subtract(self[_LEFT], other), self[_RIGHT]
+            )
         else:
-            start = max(start, self.start)
-            end = min(end, self.end)
-            return _interval(max(start, self.start), min(end, self.end))
-
-    def _split_interval(self):
-        assert self._size >= 2
-        split_mask = branch_mask(self.start, self.end - 1)
-        split_prefix = _mask_off(self.start, split_mask)
-        split_point = split_prefix | split_mask
-        assert self.start < split_point < self.end
-        return Split(
-            prefix=split_prefix, mask=split_mask,
-            left=Interval(self.start, split_point),
-            right=Interval(split_point, self.end),
-        )
-
-    def _new_interval(self, start, end):
-        if self.start == start and self.end == end:
-            return self
+            return _new_split_maybe_empty(
+                self[_PREFIX], self[_MASK], self[_LEFT],
+                _subtract(self[_RIGHT], other)
+            )
+    elif _shorter(other[_MASK], self[_MASK]):
+        if _is_zero(self[_PREFIX], other[_MASK]):
+            return _subtract(self, other[_LEFT])
         else:
-            return super(Interval, self)._new_interval(start, end)
+            return _subtract(self, other[_RIGHT])
+    else:
+        if self[_PREFIX] == other[_PREFIX]:
+            return _new_split_maybe_empty(
+                self[_PREFIX], self[_MASK],
+                _subtract(self[_LEFT], other[_LEFT]),
+                _subtract(self[_RIGHT], other[_RIGHT])
+            )
+        else:
+            return self
+
+
+def _isdisjoint(self, other):
+    if not (self and other):
+        return True
+    if self[_START] >= other[_END]:
+        return True
+    if other[_START] >= self[_END]:
+        return True
+    if len(self) == _INTERVAL_LENGTH:
+        if len(other) == _INTERVAL_LENGTH:
+            return False
+        other, self = self, other
+    return _isdisjoint(self[_LEFT], other) and _isdisjoint(self[_RIGHT], other)
+
+
+def _issubset(self, other):
+    if not self:
+        return True
+    if not other:
+        return False
+    if len(other) == _INTERVAL_LENGTH:
+        return (
+            other[_START] <= self[_START] and
+            self[_END] <= other[_END])
+    if self[_START] >= other[_END]:
+        return False
+    if other[_START] >= self[_END]:
+        return False
+    if len(self) == _INTERVAL_LENGTH:
+        if self[_SIZE] == 1:
+            return _contains(other, self[_START])
+        elif self[_SIZE] == 2:
+            return (
+                _contains(other, self[_START]) and
+                _contains(other, self[_END] - 1))
+        self = _split_interval(self)
+    if _shorter(self[_MASK], other[_MASK]):
+        return False
+    elif _shorter(other[_MASK], self[_MASK]):
+        if _is_zero(self[_PREFIX], other[_MASK]):
+            return _issubset(self, other[_LEFT])
+        else:
+            return _issubset(self, other[_RIGHT])
+    else:
+        # If they have incompatible prefixes the above start/end checks
+        # must have returned False already because they're actually
+        # disjoint.
+        assert self[_PREFIX] == other[_PREFIX]
+        return (
+            _issubset(self[_LEFT], other[_LEFT]) and
+            _issubset(self[_RIGHT], other[_RIGHT]))
+
+
+def _intervals(self):
+    if not self:
+        return
+    stack = [self]
+    while stack:
+        head = stack.pop()
+        if len(head) == _INTERVAL_LENGTH:
+            yield (head[_START], head[_END])
+        else:
+            stack.append(head[_RIGHT])
+            stack.append(head[_LEFT])
+
+
+def _reversed_intervals(self):
+    if not self:
+        return
+    stack = [self]
+    while stack:
+        head = stack.pop()
+        if len(head) == _INTERVAL_LENGTH:
+            yield (head[_START], head[_END])
+        else:
+            stack.append(head[_LEFT])
+            stack.append(head[_RIGHT])
 
 
 def _right_fill_bits(key):
@@ -676,17 +725,6 @@ def _is_zero(i, m):
     return (i & m) == 0
 
 
-def _join(p1, t1, p2, t2):
-    assert t1.size
-    assert t2.size
-    assert p1 != p2
-    m = branch_mask(p1, p2)
-    p = _mask_off(p1, m)
-    if not _is_zero(p1, m):
-        t1, t2 = t2, t1
-    return Split(prefix=p, mask=m, left=t1, right=t2)
-
-
 def _no_match(i, p, m):
     return _mask_off(i, m) != p
 
@@ -696,7 +734,7 @@ def _shorter(m1, m2):
 
 _UPPER_BOUND = 2 ** 64
 
-whole_range = Interval(0, _UPPER_BOUND)
+whole_range = IntSet._wrap(_new_interval(0, _UPPER_BOUND))
 
 INTEGER_TYPES = (type(0), type(2 ** 64))
 
@@ -710,14 +748,3 @@ def _validate_integer_in_range(name, i):
         raise ValueError(
             'Argument %s=%d out of required range 0 <= %s < 2 ** 64' % (
                 name, i, name))
-
-
-def _interval(start, end):
-    if end <= start:
-        return empty_intset
-    else:
-        return Interval(start, end)
-
-
-def _single(value):
-    return Interval(value, value + 1)

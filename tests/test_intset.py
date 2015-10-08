@@ -17,15 +17,15 @@
 
 import operator as op
 import os
+import pickle
+from copy import copy, deepcopy
+from random import Random
 
 import hypothesis.strategies as st
 import pytest
 from hypothesis import assume, example, given
 from hypothesis.stateful import Bundle, rule, RuleBasedStateMachine
 from intset import IntSet
-from intset.intset import Interval
-from copy import copy, deepcopy
-import pickle
 
 if os.getenv('HYPOTHESIS_PROFILE') == 'coverage':
     from hypothesis import Settings
@@ -214,18 +214,6 @@ def test_an_intset_iterates_in_sorted_order(imp):
         last = i
 
 
-@given(st.lists(integers_in_range, min_size=2), st.randoms())
-def test_always_collapses_to_an_interval(values, rnd):
-    assume(min(values) < max(values))
-    values.sort()
-    bits = [IntSet.interval(i, j) for i, j in zip(values, values[1:])]
-    rnd.shuffle(bits)
-    result = IntSet.empty()
-    for b in bits:
-        result |= b
-    assert isinstance(result, Interval)
-
-
 @given(SmallIntSets)
 def test_is_equal_to_sequential_insertion(imp):
     equiv = IntSet.empty()
@@ -369,10 +357,11 @@ def test_hashes_correctly(intsets):
 def test_all_values_lie_between_bounds(imp):
     assume(imp.size() > 0)
     for i in imp:
-        assert imp.start <= i < imp.end
+        assert imp[0] <= i <= imp[-1]
 
 
 @example(x=IntSet.empty(), y=IntSet.single(0))
+@example(x=IntSet.single(0), y=IntSet.empty())
 @example(x=IntSet.single(0), y=IntSet.single(2))
 @given(SmallIntSets, SmallIntSets)
 def test_union_gives_union(x, y):
@@ -403,8 +392,16 @@ def test_intersection_gives_intersection(x, y):
 @example(IntSet.single(0), IntSet.from_iterable([0, 2, 3, 4]))
 @given(IntSets, IntSets)
 def test_disjoint_agrees_with_intersection(x, y):
-    assert x.isdisjoint(y) == (not (x & y))
-    assert x.intersects(y) == bool(x & y)
+    intersection = x & y
+    assert x.isdisjoint(y) == (not intersection)
+    assert x.intersects(y) == bool(intersection)
+
+
+@example(IntSet.empty(), 0)
+@given(IntSets, integers_in_range)
+def test_inserting_an_element_increases_size_by_one(x, i):
+    assume(i not in x)
+    assert x.insert(i).size() == x.size() + 1
 
 
 def assert_strict_subset(x, y):
@@ -428,6 +425,7 @@ def test_deleting_middle_element_produces_a_subset(imp):
     assert_strict_subset(impy, imp)
 
 
+@example(IntSet.from_iterable([0, 1, 3]), Random(0))
 @given(SmallIntSets, st.randoms())
 def test_deleting_an_element_proceeds_through_subsets(imp, rnd):
     elts = list(imp)
@@ -501,6 +499,9 @@ def test_subtraction_cancels_union(x, y):
 
 
 @example(x=IntSet.empty(), y=IntSet.empty(), z=IntSet.empty())
+@example(
+    IntSet([0, (2016, 2032), (2032, 2048), 2048]), IntSet([2048]),
+    IntSet([2050]))
 @given(SmallIntSets, SmallIntSets, SmallIntSets)
 def test_intersection_distributes_over_union(x, y, z):
     assert x & (y | z) == (x & y) | (x & z)
@@ -653,13 +654,13 @@ class SetModel(RuleBasedStateMachine):
     def peel_left(self, x):
         if len(x[0]) == 0:
             return x
-        return self.restrict(x, (x[0].start + 1, x[0].end))
+        return self.restrict(x, (x[0][0], x[0][-1] + 1))
 
     @rule(target=intsets, x=intsets)
     def peel_right(self, x):
         if len(x[0]) == 0:
             return x
-        return self.restrict(x, (x[0].start, x[0].end - 1))
+        return self.restrict(x, (x[0][0], x[0][-1]))
 
     @rule(x=intsets, y=intsets)
     def validate_order(self, x, y):
@@ -677,7 +678,7 @@ class SetModel(RuleBasedStateMachine):
             assert source[0][i] == source[1][i]
         if len(source[0]) > 0:
             for v in source[1]:
-                assert source[0].start <= v < source[0].end
+                assert source[0][0] <= v <= source[0][-1]
 
 
 TestState = SetModel.TestCase
@@ -701,3 +702,16 @@ def test_validates_argument_types():
 
 def test_can_produce_whole_range_intset():
     assert IntSet.interval(0, 2 ** 64).size() == 2 ** 64
+
+
+def test_interval_ending_at_zero_is_zero():
+    assert IntSet.interval(0, 0) == IntSet.empty()
+
+
+def test_default_intset_is_empty():
+    assert IntSet() == IntSet.empty()
+
+
+def test_extra_args_is_a_type_error():
+    with pytest.raises(TypeError):
+        IntSet(1, 2)
