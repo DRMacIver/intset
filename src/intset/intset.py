@@ -498,7 +498,7 @@ def _discard(self, value):
 
 
 def _normalize_intervals(intervals):
-    intervals = sorted(intervals)
+    intervals = sorted(map(tuple, intervals))
     merged_intervals = []
     for i, j in intervals:
         if merged_intervals and i <= merged_intervals[-1][-1]:
@@ -514,9 +514,28 @@ def _from_intervals(intervals):
         return ()
     if len(intervals) == 1:
         return _new_maybe_empty_interval(*intervals[0])
-    k = len(intervals) // 2
-    return _union(
-        _from_intervals(intervals[:k]), _from_intervals(intervals[k:]))
+    start = intervals[0][0]
+    end = intervals[-1][-1]
+    e1 = end - 1
+    assert e1 > start
+    split_mask = branch_mask(start, e1)
+    split_prefix = _mask_off(start, split_mask)
+    split_point = split_prefix | split_mask
+    left = []
+    right = []
+    for x in intervals:
+        if x[1] <= split_point:
+            left.append(x)
+        elif x[0] < split_point:
+            left.append([x[0], split_point])
+            right.append([split_point, x[1]])
+        else:
+            right.append(x)
+    assert left
+    assert right
+    return _new_split_maybe_empty(
+        split_prefix, split_mask, _from_intervals(left), _from_intervals(right)
+    )
 
 
 def _union(self, other):
@@ -615,29 +634,23 @@ def _intersect(self, other):
         return _restrict(other, self[_START], self[_END])
     if len(other) == _INTERVAL_LENGTH:
         return _restrict(self, other[_START], other[_END])
-    if self[_START] > other[_END]:
+    if self[_START] >= other[_END]:
         return ()
-    if self[_END] < other[_START]:
+    if self[_END] <= other[_START]:
         return ()
     if _shorter(other[_MASK], self[_MASK]):
         self, other = other, self
     if _shorter(self[_MASK], other[_MASK]):
-        if _no_match(other[_PREFIX], self[_PREFIX], self[_MASK]):
-            return ()
-        elif _is_zero(other[_PREFIX], self[_MASK]):
+        if _is_zero(other[_PREFIX], self[_MASK]):
             return _intersect(self[_LEFT], other)
         else:
             return _intersect(self[_RIGHT], other)
     else:
-        assert self[_MASK] == other[_MASK]
-        if self[_PREFIX] == other[_PREFIX]:
-            return _new_split_maybe_empty(
-                self[_PREFIX], self[_MASK],
-                _intersect(self[_LEFT], other[_LEFT]),
-                _intersect(self[_RIGHT], other[_RIGHT])
-            )
-        else:
-            return ()
+        return _new_split_maybe_empty(
+            self[_PREFIX], self[_MASK],
+            _intersect(self[_LEFT], other[_LEFT]),
+            _intersect(self[_RIGHT], other[_RIGHT])
+        )
 
 
 def _subtract(self, other):

@@ -23,9 +23,6 @@ from intset import IntSet
 
 if os.getenv('HYPOTHESIS_PROFILE') == 'coverage':
     Settings.default.max_examples = 0
-else:
-    Settings.default.max_examples = 1000
-    Settings.default.timeout = -1
 
 
 def test_not_equal_to_other_types():
@@ -34,23 +31,60 @@ def test_not_equal_to_other_types():
 
 integers_in_range = st.one_of(
     st.integers(min_value=0, max_value=2 ** 64 - 1),
-    st.integers(min_value=0).filter(lambda x: x < 2 ** 64))
+    st.integers(min_value=0).filter(lambda x: x < 2 ** 64)) | st.one_of(*[
+        st.integers(min_value=0, max_value=2 ** 64 - 1).map(
+            lambda i: i | (2 ** k)) for k in range(64)])
 
-intervals = st.tuples(integers_in_range, integers_in_range).map(
-    lambda x: sorted(tuple(x)))
 
 SMALL = 100
 
 short_intervals = st.builds(
     lambda start, length: assume(
         start + length <= 2 ** 64) and (start, start + length),
-    integers_in_range, st.integers(0, SMALL))
+    integers_in_range, st.integers(0, SMALL)) | \
+    st.builds(lambda x: (x, x + 1), integers_in_range)
+
+
+intervals = st.tuples(integers_in_range, integers_in_range).map(
+    lambda x: sorted(tuple(x))) | short_intervals
 
 interval_list = st.lists(intervals, average_size=10)
 
-IntSets = st.builds(
-    IntSet.from_intervals, interval_list) | integers_in_range.map(
-        IntSet.single) | intervals.map(lambda x: IntSet.interval(*x))
+IntSets = st.one_of(
+    st.builds(IntSet.from_intervals, interval_list),
+    integers_in_range.map(IntSet.single),
+    intervals.map(lambda x: IntSet.interval(*x)),
+    st.builds(
+        IntSet.from_iterable, st.lists(integers_in_range, average_size=100)),
+)
+
+
+SmallIntSets = st.builds(
+    IntSet.from_intervals,
+    st.lists(short_intervals,
+             average_size=5)).filter(lambda x: x.size() <= SMALL)
+
+
+@given(SmallIntSets)
+def test_intersect_alternating_elements_is_empty(imp):
+    l = imp
+    r = imp
+    for i, x in enumerate(imp):
+        if i % 2 == 0:
+            l = l.discard(x)
+        else:
+            r = r.discard(x)
+    assert not (l & r)
+    assert l.isdisjoint(r)
+
+
+@given(IntSets, IntSets)
+def test_removing_each_from_the_other_is_disjoint(x, y):
+    assume(x.intersects(y))
+    u = x - y
+    v = y - x
+    assert not (u & v)
+    assert u.isdisjoint(v)
 
 
 @example(IntSet.empty())
@@ -67,6 +101,12 @@ def test_pickling_works_correctly(x):
 def test_copies_as_self(x):
     assert copy(x) is x
     assert deepcopy(x) is x
+
+
+@given(st.lists(integers_in_range))
+def test_iterable_equivalent_to_intervals_of_length_one(xs):
+    assert IntSet.from_iterable(xs) == \
+        IntSet.from_intervals((x, x + 1) for x in xs)
 
 
 def test_deepcopy_collapses_reference_equality():
@@ -141,12 +181,6 @@ def test_raises_index_error_out_of_bounds(x, i):
     assume(abs(i) > x.size())
     with pytest.raises(IndexError):
         x[i]
-
-
-SmallIntSets = st.builds(
-    IntSet.from_intervals,
-    st.lists(short_intervals,
-             average_size=5)).filter(lambda x: x.size() <= SMALL)
 
 
 @example(IntSet.empty(), IntSet.from_iterable([1]))
@@ -412,6 +446,7 @@ def test_disjoint_agrees_with_intersection(x, y):
 
 
 @example(IntSet.empty(), 0)
+@example(IntSet([2]), 0)
 @given(IntSets, integers_in_range)
 def test_inserting_an_element_increases_size_by_one(x, i):
     assume(i not in x)
@@ -501,6 +536,9 @@ def test_subtracting_a_non_superset_is_non_empty(x, y):
 @example(
     IntSet.from_iterable([2 ** 63 + 1, 2 ** 63 + 3]),
     IntSet.from_iterable([2 ** 62 + 1, 2 ** 62 + 3]))
+@example(
+    IntSet([(9223372036854770807, 9223372036854770864)]),
+    IntSet([9223372036854770814]))
 @given(SmallIntSets, SmallIntSets)
 def test_subtraction_gives_subtraction(x, y):
     assert set(x) - set(y) == set(x - y)
@@ -591,9 +629,15 @@ def test_reversible_as_list(imp):
 
 
 @example(IntSet.empty(), IntSet.empty())
+@example(IntSet([]), IntSet([512, 514]))
 @given(IntSets, IntSets)
 def test_subtraction_is_intersection_with_complement(x, y):
     assert x - y == (x & ~y)
+
+
+@given(IntSets, IntSets)
+def test_subtraction_and_intersection_give_original(x, y):
+    assert x == (x - y) | (x & y)
 
 
 class SetModel(RuleBasedStateMachine):
