@@ -109,6 +109,13 @@ def test_iterable_equivalent_to_intervals_of_length_one(xs):
         IntSet.from_intervals((x, x + 1) for x in xs)
 
 
+@given(IntSets, IntSets)
+def test_union_leads_to_extension(x, y):
+    z = x | y
+    for u in list(x.intervals()) + list(y.intervals()):
+        assert IntSet.interval(*u).issubset(z)
+
+
 def test_deepcopy_collapses_reference_equality():
     x = IntSet.from_iterable([1, 2, 3])
     y = IntSet.from_iterable([1, 2, 3])
