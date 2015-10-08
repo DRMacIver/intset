@@ -18,12 +18,34 @@ from collections import Sequence, Set
 
 
 class IntSet(object):
+    """
+    An IntSet is a compressed immutable representation of a sorted list of
+    unsigned 64-bit integers with fast membership, union and range restriction.
+
+    It mostly behaves as if it were a sorted list of deduplicated integer
+    values. In particular, you can index it if it were, and it will sort and
+    compare equal (to other IntSets) as if it were.
+
+    Because IntSet is immutable, unlike list it may also be used as a hash key.
+
+    It also supports set operations. In particular, all the boolean operations
+    are supported and will do more or less what you would expect:
+
+        x & y: An IntSet containing the values that are present in both x and y
+
+        x | y: An IntSet containing the values present in either x or y
+
+        x - y: An IntSet containing the values present in x but not y
+
+        x ^ y: An IntSet containing the values present in x or y but not both
+
+        ~x: An IntSet containing all values in the range 0 <= i < 2 ** 64 that
+            are not present in x (IntSet can represent this efficiently. It
+            won't allocate 2 ** 64 integers worth of memory).
+    """
+
     __slots__ = ()
 
-    """
-    An IntSet is a compressed representation of a sorted list of unsigned
-    64-bit integers with fast membership, union and range restriction.
-    """
     @classmethod
     def empty(cls):
         """Return an empty IntSet."""
@@ -49,9 +71,11 @@ class IntSet(object):
 
     @classmethod
     def from_iterable(self, values):
+        """Return an IntSet containing everything in values, which should be an
+        iterable over intsets in the valid range."""
         result = empty_intset
         for i in values:
-            result = result._insert(i)
+            result = result.insert(i)
         return result
 
     @classmethod
@@ -69,11 +93,6 @@ class IntSet(object):
         will allow."""
         return self._size
 
-    @abstractmethod
-    def restrict(self, start, end):
-        """Return a new IntSet with all values x in self such that start <=
-        x < end."""
-
     def insert(self, value):
         """Returns an IntSet which contains all the values of the current one
         plus the provided value."""
@@ -86,17 +105,15 @@ class IntSet(object):
 
         Returns self if the value is not present rather than raising an
         error
+
         """
         _validate_integer_in_range('value', value)
         return self._discard(value)
 
     @abstractmethod
-    def _insert(self, value):
-        """Implementation of insert"""
-
-    @abstractmethod
-    def _discard(self, value):
-        """Implementation of discard"""
+    def restrict(self, start, end):
+        """Return a new IntSet with all values x in self such that start <=
+        x < end."""
 
     def __len__(self):
         return self._size
@@ -193,6 +210,12 @@ class IntSet(object):
             self._size, self.start, self.end
         ))
 
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, table):
+        return table.setdefault(self, self)
+
     def isdisjoint(self, other):
         """Returns True if self and other have no common elements."""
         if not (self and other):
@@ -207,6 +230,11 @@ class IntSet(object):
             other, self = self, other
         assert isinstance(self, Split)
         return self.left.isdisjoint(other) and self.right.isdisjoint(other)
+
+    def intersects(self, other):
+        """Returns True if there is an element i such that i in self and i in
+        other"""
+        return not self.isdisjoint(other)
 
     def issubset(self, other):
         """Returns True if every element of self is also in other."""
@@ -243,6 +271,10 @@ class IntSet(object):
             return (
                 self.left.issubset(other.left) and
                 self.right.issubset(other.right))
+
+    def issuperset(self, other):
+        """Returns True if every element of other is also in self"""
+        return other.issubset(self)
 
     def __and__(self, other):
         if min(self._size, other._size) == 0:
@@ -283,6 +315,9 @@ class IntSet(object):
                 )
             else:
                 return empty_intset
+
+    def __invert__(self):
+        return whole_range - self
 
     def __sub__(self, other):
         if other._size == 0:
@@ -417,6 +452,14 @@ class IntSet(object):
         for start, end in self.reversed_intervals():
             for i in range(end - 1, start - 1, -1):
                 yield i
+
+    @abstractmethod
+    def _insert(self, value):
+        """Implementation of insert."""
+
+    @abstractmethod
+    def _discard(self, value):
+        """Implementation of discard."""
 
     def _new_split(self, prefix, mask, left, right):
         if left._size == 0:
@@ -652,6 +695,8 @@ def _shorter(m1, m2):
     return m1 > m2
 
 _UPPER_BOUND = 2 ** 64
+
+whole_range = Interval(0, _UPPER_BOUND)
 
 INTEGER_TYPES = (type(0), type(2 ** 64))
 

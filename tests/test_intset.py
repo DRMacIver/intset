@@ -24,6 +24,8 @@ from hypothesis import assume, example, given
 from hypothesis.stateful import Bundle, rule, RuleBasedStateMachine
 from intset import IntSet
 from intset.intset import Interval
+from copy import copy, deepcopy
+import pickle
 
 if os.getenv('HYPOTHESIS_PROFILE') == 'coverage':
     from hypothesis import Settings
@@ -53,6 +55,32 @@ interval_list = st.lists(intervals, average_size=10)
 IntSets = st.builds(
     IntSet.from_intervals, interval_list) | integers_in_range.map(
         IntSet.single) | intervals.map(lambda x: IntSet.interval(*x))
+
+
+@given(IntSets)
+def test_pickling_works_correctly(x):
+    assert pickle.loads(pickle.dumps(x)) == x
+
+
+@example(IntSet.interval(0, 10))
+@given(IntSets)
+def test_copies_as_self(x):
+    assert copy(x) is x
+    assert deepcopy(x) is x
+
+
+def test_deepcopy_collapses_reference_equality():
+    x = IntSet.from_iterable([1, 2, 3])
+    y = IntSet.from_iterable([1, 2, 3])
+    z = IntSet.from_iterable([1, 2, 3, 4])
+    assert x == y
+    assert x is not y
+    w, u, v = deepcopy((x, y, z))
+    assert x == w
+    assert y == u
+    assert z == v
+    assert w is u
+    assert w is not v
 
 
 @example([
@@ -376,13 +404,20 @@ def test_intersection_gives_intersection(x, y):
 @given(IntSets, IntSets)
 def test_disjoint_agrees_with_intersection(x, y):
     assert x.isdisjoint(y) == (not (x & y))
+    assert x.intersects(y) == bool(x & y)
 
 
+def assert_strict_subset(x, y):
+    assert x.issubset(y)
+    assert not x.issuperset(y)
+
+
+@example(IntSet.from_iterable([1, 2, 3, 4, 5]), 2)
 @given(IntSets, integers_in_range)
 def test_deleting_an_internal_element_produces_a_subset(imp, i):
     assume(0 < i + 1 < imp.size())
     impy = imp.discard(imp[i])
-    assert impy.issubset(imp)
+    assert_strict_subset(impy, imp)
 
 
 @given(IntSets)
@@ -390,7 +425,7 @@ def test_deleting_middle_element_produces_a_subset(imp):
     assume(imp.size() >= 3)
     i = imp.size() // 2
     impy = imp.discard(imp[i])
-    assert impy.issubset(imp)
+    assert_strict_subset(impy, imp)
 
 
 @given(SmallIntSets, st.randoms())
@@ -400,8 +435,8 @@ def test_deleting_an_element_proceeds_through_subsets(imp, rnd):
     current = imp
     for i in elts:
         nxt = current.discard(i)
-        assert nxt.issubset(current)
-        assert nxt.issubset(imp)
+        assert_strict_subset(nxt, current)
+        assert_strict_subset(nxt, imp)
         current = nxt
 
 
@@ -536,6 +571,11 @@ def test_repr_evals_to_self(imp):
 @given(SmallIntSets)
 def test_reversible_as_list(imp):
     assert list(reversed(imp)) == list(reversed(list(imp)))
+
+
+@given(IntSets, IntSets)
+def test_subtraction_is_intersection_with_complement(x, y):
+    assert x - y == (x & ~y)
 
 
 class SetModel(RuleBasedStateMachine):
