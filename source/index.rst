@@ -1,9 +1,9 @@
-IntSet: Immutable fast sets of integers
-=======================================
+IntSet: Compressed mergeable sets of integers
+=============================================
 
 .. module:: intset
 
 .. autoclass:: IntSet
-    :members: empty, single, from_interval, interval, from_iterable,
+    :members: empty, single, from_intervals, interval, from_iterable,
         size, insert, discard, restrict, issubset, issuperset, isdisjoint,
-        intersects
+        intersects, Builder

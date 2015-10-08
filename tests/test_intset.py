@@ -715,3 +715,8 @@ def test_default_intset_is_empty():
 def test_extra_args_is_a_type_error():
     with pytest.raises(TypeError):
         IntSet(1, 2)
+
+
+def test_comparision_with_other_type_is_error():
+    with pytest.raises(TypeError):
+        IntSet([1, 2, 3]) <= [1, 2, 3]

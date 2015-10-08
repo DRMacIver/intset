@@ -1,0 +1,34 @@
+language: c
+
+sudo: false
+
+env: PYTHONDONTWRITEBYTECODE=x
+
+os:
+    - linux
+
+cache:
+    apt: true
+    directories:
+        - $HOME/.pyenv
+        - $HOME/.venv
+        - $HOME/.cache/pip
+        - $HOME/wheelhouse
+
+env:
+    matrix:
+        - TOXENV=docs
+        - TOXENV=coverage
+        - TOXENV=lint
+        - TOXENV=pypy
+        - TOXENV=py26
+        - TOXENV=py35
+        - TOXENV=py27
+        - TOXENV=py33
+        - TOXENV=py34
+
+install:
+    - ./scripts/install.sh
+
+script:
+    - ./scripts/run.sh

@@ -49,7 +49,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
     Because IntSet is immutable, unlike list it may also be used as a hash key.
 
     It also supports set operations. In particular, all the boolean operations
-    are supported and will do more or less what you would expect:
+    are supported:
 
         x & y: An IntSet containing the values that are present in both x and y
 
@@ -62,11 +62,30 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
         ~x: An IntSet containing all values in the range 0 <= i < 2 ** 64 that
             are not present in x (IntSet can represent this efficiently. It
             won't allocate 2 ** 64 integers worth of memory).
+
+    IntSets may be constructed either from the dedicated class methods or by
+    calling the class as you usually would for a set. So IntSet([1, 2, 3]) is
+    an IntSet containing the values 1, 2 and 3.
+
+    When calling an IntSet this way, non-integer values which are iterable
+    sequences of length 2 will be interpreted as intervals start <= x < end.
+    So e.g. IntSet([1, [10, 100]]) will contain the numbers 1 and 10, ..., 99.
     """
 
     __slots__ = ('wrapped')
 
     class Builder(object):
+        """An IntSet.Builder is for building up an IntSet incrementally through
+        a series of insertions.
+
+        This will typically be much faster than repeatedly calling
+        insert on an IntSet object. The intended usage is to repeatedly
+        call insert() or insert_interval() on a builder, then call
+        build() at the end. Note that you can continue to insert further
+        data into a Builder afterwards if you wish, and this will not
+        affect previously built IntSet instances.
+
+        """
 
         def __init__(self):
             self.wrapped = ()
@@ -74,6 +93,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
             self.end = 0
 
         def insert(self, value):
+            """Add a single value to the IntSet to be built."""
             if value == self.end:
                 self.end += 1
             elif value + 1 == self.start:
@@ -83,13 +103,9 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
                 self.start = value
                 self.end = value + 1
 
-        def _collapse(self):
-            if self.start < self.end:
-                self.wrapped = _union(
-                    self.wrapped, _new_interval(self.start, self.end)
-                )
-
         def insert_interval(self, start, end):
+            """Add all values x such that start <= x < end to the IntSet to be
+            built."""
             if not (self.start >= end or start >= self.end):
                 self.start = min(start, self.start)
                 self.end = max(end, self.end)
@@ -99,10 +115,32 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
                 self.end = end
 
         def build(self):
+            """Produce a new IntSet with all the values previously inserted to
+            this builder.
+
+            You may call build() more than once, and any values inserted
+            in between those calls will also be present, but previously
+            built values will be unaffected by subsequent inserts
+
+            """
             self._collapse()
             self.start = 0
             self.end = 0
             return IntSet._wrap(self.wrapped)
+
+        def _collapse(self):
+            if self.start < self.end:
+                self.wrapped = _union(
+                    self.wrapped, _new_interval(self.start, self.end)
+                )
+
+    def __getstate__(self):
+        # wrap in a tuple because a falsey value will cause the corresponding
+        # setstate to not be called.
+        return (list(self.intervals()),)
+
+    def __setstate__(self, state):
+        self.wrapped = IntSet.from_intervals(state[0]).wrapped
 
     def __init__(self, wrapped):
         assert isinstance(wrapped, tuple)
@@ -211,6 +249,9 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
         return not self.__eq__(other)
 
     def __cmp__(self, other):
+        if not isinstance(other, IntSet):
+            raise TypeError(
+                'Unorderable types IntSet and %s' % (type(other).__name__,))
         self_intervals = list(self.intervals())
         other_intervals = list(other.intervals())
         self_intervals.reverse()
