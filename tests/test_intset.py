@@ -23,6 +23,7 @@ from intset import IntSet
 
 if os.getenv('HYPOTHESIS_PROFILE') == 'coverage':
     Settings.default.max_examples = 0
+    Settings.default.database = None
 
 
 def test_not_equal_to_other_types():
