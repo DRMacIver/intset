@@ -1,7 +1,10 @@
 # coding=utf-8
 
+# This file is part of intset (https://github.com/DRMacIver/inteset)
 
-# This file is part of Hypothesis (https://github.com/DRMacIver/hypothesis)
+# Most of this work is copyright (C) 2013-2015 David R. MacIver
+# (david@drmaciver.com), but it contains contributions by others, who hold
+# copyright over their individual contributions.
 
 # This Source Code Form is subject to the terms of the Mozilla Public License,
 # v. 2.0. If a copy of the MPL was not distributed with this file, You can
@@ -9,17 +12,20 @@
 
 # END HEADER
 
-import operator as op
+from __future__ import division, print_function, absolute_import
+
 import os
 import pickle
+import operator as op
 from copy import copy, deepcopy
 from random import Random
 
-import hypothesis.strategies as st
 import pytest
-from hypothesis import assume, example, given, Settings
-from hypothesis.stateful import Bundle, rule, RuleBasedStateMachine
+
+import hypothesis.strategies as st
 from intset import IntSet
+from hypothesis import given, assume, example, Settings
+from hypothesis.stateful import rule, Bundle, RuleBasedStateMachine
 
 if os.getenv('HYPOTHESIS_PROFILE') == 'coverage':
     Settings.default.max_examples = 0

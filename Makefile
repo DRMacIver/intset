@@ -1,196 +1,153 @@
-# Makefile for Sphinx documentation
-#
+.PHONY: clean documentation
 
-PYTHON_FILES=src/intset/*.py
 
-# You can set these variables from the command line.
-SPHINXOPTS    =
-SPHINXBUILD   = sphinx-build
-PAPER         =
-BUILDDIR      = build
+DEVELOPMENT_DATABASE?=postgres://whereshouldilive@localhost/whereshouldilive_dev
+SPHINXBUILD   = $(DEV_PYTHON) -m sphinx
+SPHINX_BUILDDIR      = docs/_build
+ALLSPHINXOPTS   = -d $(SPHINX_BUILDDIR)/doctrees docs -W
 
-# User-friendly check for sphinx-build
-ifeq ($(shell which $(SPHINXBUILD) >/dev/null 2>&1; echo $$?), 1)
-$(error The '$(SPHINXBUILD)' command was not found. Make sure you have Sphinx installed, then set the SPHINXBUILD environment variable to point to the full path of the '$(SPHINXBUILD)' executable. Alternatively you can add the directory with the executable to your PATH. If you don't have Sphinx installed, grab it from http://sphinx-doc.org/)
-endif
+BUILD_RUNTIMES?=$(PWD)/.runtimes
 
-# Internal variables.
-PAPEROPT_a4     = -D latex_paper_size=a4
-PAPEROPT_letter = -D latex_paper_size=letter
-ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
-# the i18n builder cannot share the environment and doctrees with the others
-I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
+PY26=$(BUILD_RUNTIMES)/snakepit/python2.6
+PY27=$(BUILD_RUNTIMES)/snakepit/python2.7
+PY33=$(BUILD_RUNTIMES)/snakepit/python3.3
+PY34=$(BUILD_RUNTIMES)/snakepit/python3.4
+PY35=$(BUILD_RUNTIMES)/snakepit/python3.5
+PYPY=$(BUILD_RUNTIMES)/snakepit/pypy
 
-.PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest coverage gettext
+TOOLS=$(BUILD_RUNTIMES)/tools
 
-help:
-	@echo "Please use \`make <target>' where <target> is one of"
-	@echo "  html       to make standalone HTML files"
-	@echo "  dirhtml    to make HTML files named index.html in directories"
-	@echo "  singlehtml to make a single large HTML file"
-	@echo "  pickle     to make pickle files"
-	@echo "  json       to make JSON files"
-	@echo "  htmlhelp   to make HTML files and a HTML help project"
-	@echo "  qthelp     to make HTML files and a qthelp project"
-	@echo "  applehelp  to make an Apple Help Book"
-	@echo "  devhelp    to make HTML files and a Devhelp project"
-	@echo "  epub       to make an epub"
-	@echo "  latex      to make LaTeX files, you can set PAPER=a4 or PAPER=letter"
-	@echo "  latexpdf   to make LaTeX files and run them through pdflatex"
-	@echo "  latexpdfja to make LaTeX files and run them through platex/dvipdfmx"
-	@echo "  text       to make text files"
-	@echo "  man        to make manual pages"
-	@echo "  texinfo    to make Texinfo files"
-	@echo "  info       to make Texinfo files and run them through makeinfo"
-	@echo "  gettext    to make PO message catalogs"
-	@echo "  changes    to make an overview of all changed/added/deprecated items"
-	@echo "  xml        to make Docutils-native XML files"
-	@echo "  pseudoxml  to make pseudoxml-XML files for display purposes"
-	@echo "  linkcheck  to check all external links for integrity"
-	@echo "  doctest    to run all doctests embedded in the documentation (if enabled)"
-	@echo "  coverage   to run coverage check of the documentation (if enabled)"
+TOX=$(TOOLS)/tox
+SPHINX_BUILD=$(TOOLS)/sphinx-build
+SPHINX_AUTOBUILD=$(TOOLS)/sphinx-autobuild
+ISORT=$(TOOLS)/isort
+FLAKE8=$(TOOLS)/flake8
+PYFORMAT=$(TOOLS)/pyformat
+
+TOOL_VIRTUALENV=$(BUILD_RUNTIMES)/virtualenvs/tools
+ISORT_VIRTUALENV=$(BUILD_RUNTIMES)/virtualenvs/isort
+TESTMON_VIRTUALENV=$(BUILD_RUNTIMES)/virtualenvs/testmon
+TOOL_PYTHON=$(TOOL_VIRTUALENV)/bin/python
+TOOL_PIP=$(TOOL_VIRTUALENV)/bin/pip
+TOOL_INSTALL=$(TOOL_PIP) install --upgrade
+
+export PATH:=$(BUILD_RUNTIMES)/snakepit:$(TOOLS):$(PATH)
+export LC_ALL=C.UTF-8
+
+$(PY26):
+	scripts/install.sh 2.6
+
+$(PY27):
+	scripts/install.sh 2.7
+
+$(PY33):
+	scripts/install.sh 3.3
+
+$(PY34):
+	scripts/install.sh 3.4
+
+$(PY35):
+	scripts/install.sh 3.5
+
+$(PYPY):
+	scripts/install.sh pypy
+
+$(TOOL_VIRTUALENV): $(PY34)
+	$(PY34) -m virtualenv $(TOOL_VIRTUALENV)
+	mkdir -p $(TOOLS)
+
+$(TESTMON_VIRTUALENV): $(PY35)
+	$(PY35) -m virtualenv $(TESTMON_VIRTUALENV)
+
+testmon: $(TESTMON_VIRTUALENV)
+	$(TESTMON_VIRTUALENV)/bin/python -m pip install --upgrade setuptools wheel pip
+	$(TESTMON_VIRTUALENV)/bin/python -m pip install --upgrade pytest flaky pytest-testmon
+	PYTHONPATH=src $(TESTMON_VIRTUALENV)/bin/python -m pytest --testmon tests/cover
+
+$(TOOLS): $(TOOL_VIRTUALENV)
+
+$(ISORT_VIRTUALENV): $(PY34)
+	$(PY34) -m virtualenv $(ISORT_VIRTUALENV)
+
+format: $(PYFORMAT) $(ISORT)
+	$(TOOL_PYTHON) scripts/enforce_header.py
+	# isort will sort packages differently depending on whether they're installed
+	$(ISORT_VIRTUALENV)/bin/python -m pip install pytest
+	env -i PATH=$(PATH) $(ISORT) -p hypothesis -ls -m 2 -w 75 \
+			-a  "from __future__ import absolute_import, print_function, division" \
+			-rc src tests 
+	find src tests -name '*.py' | xargs $(PYFORMAT) -i
+
+lint: $(FLAKE8)
+	$(FLAKE8) src tests --exclude=compat.py,test_reflection.py,test_imports.py,tests/py2 --ignore=E731,E721
+
+check-format: format lint
+	git diff --exit-code
+
+check-py26: $(PY26) $(TOX)
+	$(TOX) -e py26
+
+check-py27: $(PY27) $(TOX)
+	$(TOX) -e py27
+
+check-py33: $(PY33) $(TOX)
+	$(TOX) -e py33
+
+check-py34: $(py34) $(TOX)
+	$(TOX) -e py34
+
+check-py35: $(PY35) $(TOX)
+	$(TOX) -e py35
+
+check-pypy: $(PYPY) $(TOX)
+	$(TOX) -e pypy
+
+check-coverage: $(TOX) $(PY35)
+	$(TOX) -e coverage
+
+check: check-format check-coverage check-py26 check-py27 check-py33 check-py34 check-py35 check-pypy check-django check-pytest
+
+check-fast: lint $(PY26) $(PY35) $(PYPY) $(TOX)
+	$(TOX) -e pypy-brief
+	$(TOX) -e py35-brief
+	$(TOX) -e py26-brief
+	$(TOX) -e py35-prettyquick
+
+$(TOX): $(PY35) tox.ini $(TOOLS)
+	$(TOOL_INSTALL) tox
+	rm -f $(TOX)
+	rm -rf .tox
+	ln -sf $(TOOL_VIRTUALENV)/bin/tox $(TOX)
+
+$(SPHINX_BUILD): $(TOOL_VIRTUALENV)
+	$(TOOL_PYTHON) -m pip install sphinx
+	ln -sf $(TOOL_VIRTUALENV)/bin/sphinx-build $(SPHINX_BUILD)
+
+$(SPHINX_AUTOBUILD): $(TOOL_VIRTUALENV)
+	$(TOOL_PYTHON) -m pip install sphinx-autobuild
+	ln -sf $(TOOL_VIRTUALENV)/bin/sphinx-autobuild $(SPHINX_AUTOBUILD)
+
+$(PYFORMAT): $(TOOL_VIRTUALENV)
+	$(TOOL_INSTALL) pyformat
+	ln -sf $(TOOL_VIRTUALENV)/bin/pyformat $(PYFORMAT)
+
+$(ISORT): $(ISORT_VIRTUALENV)
+	$(ISORT_VIRTUALENV)/bin/python -m pip install isort==4.1.0
+	ln -sf $(ISORT_VIRTUALENV)/bin/isort $(ISORT)
+
+$(FLAKE8): $(TOOL_VIRTUALENV)
+	$(TOOL_INSTALL) flake8
+	ln -sf $(TOOL_VIRTUALENV)/bin/flake8 $(FLAKE8)
 
 clean:
-	rm -rf $(BUILDDIR)/*
+	rm -rf .tox
+	rm -rf .hypothesis
+	rm -rf docs/_build
+	rm -rf $(TOOLS)
+	rm -rf $(BUILD_RUNTIMES)/snakepit
+	rm -rf $(BUILD_RUNTIMES)/virtualenvs
+	find src tests -name "*.pyc" -delete
+	find src tests -name "__pycache__" -delete
 
-build/html/index.html: $(PYTHON_FILES) source/index.rst source/conf.py
-	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
-	@echo
-	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
-
-html: build/html/index.html
-
-dirhtml:
-	$(SPHINXBUILD) -b dirhtml $(ALLSPHINXOPTS) $(BUILDDIR)/dirhtml
-	@echo
-	@echo "Build finished. The HTML pages are in $(BUILDDIR)/dirhtml."
-
-singlehtml:
-	$(SPHINXBUILD) -b singlehtml $(ALLSPHINXOPTS) $(BUILDDIR)/singlehtml
-	@echo
-	@echo "Build finished. The HTML page is in $(BUILDDIR)/singlehtml."
-
-pickle:
-	$(SPHINXBUILD) -b pickle $(ALLSPHINXOPTS) $(BUILDDIR)/pickle
-	@echo
-	@echo "Build finished; now you can process the pickle files."
-
-json:
-	$(SPHINXBUILD) -b json $(ALLSPHINXOPTS) $(BUILDDIR)/json
-	@echo
-	@echo "Build finished; now you can process the JSON files."
-
-htmlhelp:
-	$(SPHINXBUILD) -b htmlhelp $(ALLSPHINXOPTS) $(BUILDDIR)/htmlhelp
-	@echo
-	@echo "Build finished; now you can run HTML Help Workshop with the" \
-	      ".hhp project file in $(BUILDDIR)/htmlhelp."
-
-qthelp:
-	$(SPHINXBUILD) -b qthelp $(ALLSPHINXOPTS) $(BUILDDIR)/qthelp
-	@echo
-	@echo "Build finished; now you can run "qcollectiongenerator" with the" \
-	      ".qhcp project file in $(BUILDDIR)/qthelp, like this:"
-	@echo "# qcollectiongenerator $(BUILDDIR)/qthelp/IntSet.qhcp"
-	@echo "To view the help file:"
-	@echo "# assistant -collectionFile $(BUILDDIR)/qthelp/IntSet.qhc"
-
-applehelp:
-	$(SPHINXBUILD) -b applehelp $(ALLSPHINXOPTS) $(BUILDDIR)/applehelp
-	@echo
-	@echo "Build finished. The help book is in $(BUILDDIR)/applehelp."
-	@echo "N.B. You won't be able to view it unless you put it in" \
-	      "~/Library/Documentation/Help or install it in your application" \
-	      "bundle."
-
-devhelp:
-	$(SPHINXBUILD) -b devhelp $(ALLSPHINXOPTS) $(BUILDDIR)/devhelp
-	@echo
-	@echo "Build finished."
-	@echo "To view the help file:"
-	@echo "# mkdir -p $$HOME/.local/share/devhelp/IntSet"
-	@echo "# ln -s $(BUILDDIR)/devhelp $$HOME/.local/share/devhelp/IntSet"
-	@echo "# devhelp"
-
-epub:
-	$(SPHINXBUILD) -b epub $(ALLSPHINXOPTS) $(BUILDDIR)/epub
-	@echo
-	@echo "Build finished. The epub file is in $(BUILDDIR)/epub."
-
-latex:
-	$(SPHINXBUILD) -b latex $(ALLSPHINXOPTS) $(BUILDDIR)/latex
-	@echo
-	@echo "Build finished; the LaTeX files are in $(BUILDDIR)/latex."
-	@echo "Run \`make' in that directory to run these through (pdf)latex" \
-	      "(use \`make latexpdf' here to do that automatically)."
-
-latexpdf:
-	$(SPHINXBUILD) -b latex $(ALLSPHINXOPTS) $(BUILDDIR)/latex
-	@echo "Running LaTeX files through pdflatex..."
-	$(MAKE) -C $(BUILDDIR)/latex all-pdf
-	@echo "pdflatex finished; the PDF files are in $(BUILDDIR)/latex."
-
-latexpdfja:
-	$(SPHINXBUILD) -b latex $(ALLSPHINXOPTS) $(BUILDDIR)/latex
-	@echo "Running LaTeX files through platex and dvipdfmx..."
-	$(MAKE) -C $(BUILDDIR)/latex all-pdf-ja
-	@echo "pdflatex finished; the PDF files are in $(BUILDDIR)/latex."
-
-text:
-	$(SPHINXBUILD) -b text $(ALLSPHINXOPTS) $(BUILDDIR)/text
-	@echo
-	@echo "Build finished. The text files are in $(BUILDDIR)/text."
-
-man:
-	$(SPHINXBUILD) -b man $(ALLSPHINXOPTS) $(BUILDDIR)/man
-	@echo
-	@echo "Build finished. The manual pages are in $(BUILDDIR)/man."
-
-texinfo:
-	$(SPHINXBUILD) -b texinfo $(ALLSPHINXOPTS) $(BUILDDIR)/texinfo
-	@echo
-	@echo "Build finished. The Texinfo files are in $(BUILDDIR)/texinfo."
-	@echo "Run \`make' in that directory to run these through makeinfo" \
-	      "(use \`make info' here to do that automatically)."
-
-info:
-	$(SPHINXBUILD) -b texinfo $(ALLSPHINXOPTS) $(BUILDDIR)/texinfo
-	@echo "Running Texinfo files through makeinfo..."
-	make -C $(BUILDDIR)/texinfo info
-	@echo "makeinfo finished; the Info files are in $(BUILDDIR)/texinfo."
-
-gettext:
-	$(SPHINXBUILD) -b gettext $(I18NSPHINXOPTS) $(BUILDDIR)/locale
-	@echo
-	@echo "Build finished. The message catalogs are in $(BUILDDIR)/locale."
-
-changes:
-	$(SPHINXBUILD) -b changes $(ALLSPHINXOPTS) $(BUILDDIR)/changes
-	@echo
-	@echo "The overview file is in $(BUILDDIR)/changes."
-
-linkcheck:
-	$(SPHINXBUILD) -b linkcheck $(ALLSPHINXOPTS) $(BUILDDIR)/linkcheck
-	@echo
-	@echo "Link check complete; look for any errors in the above output " \
-	      "or in $(BUILDDIR)/linkcheck/output.txt."
-
-doctest:
-	$(SPHINXBUILD) -b doctest $(ALLSPHINXOPTS) $(BUILDDIR)/doctest
-	@echo "Testing of doctests in the sources finished, look at the " \
-	      "results in $(BUILDDIR)/doctest/output.txt."
-
-coverage:
-	$(SPHINXBUILD) -b coverage $(ALLSPHINXOPTS) $(BUILDDIR)/coverage
-	@echo "Testing of coverage in the sources finished, look at the " \
-	      "results in $(BUILDDIR)/coverage/python.txt."
-
-xml:
-	$(SPHINXBUILD) -b xml $(ALLSPHINXOPTS) $(BUILDDIR)/xml
-	@echo
-	@echo "Build finished. The XML files are in $(BUILDDIR)/xml."
-
-pseudoxml:
-	$(SPHINXBUILD) -b pseudoxml $(ALLSPHINXOPTS) $(BUILDDIR)/pseudoxml
-	@echo
-	@echo "Build finished. The pseudo-XML files are in $(BUILDDIR)/pseudoxml."
+documentation: $(SPHINX_BUILD) source/*.rst
+	$(SPHINX_BUILD) -W -b html -d build/doctrees   source build/html
