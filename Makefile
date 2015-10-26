@@ -30,7 +30,6 @@ TESTMON_VIRTUALENV=$(BUILD_RUNTIMES)/virtualenvs/testmon
 TOOL_PYTHON=$(TOOL_VIRTUALENV)/bin/python
 TOOL_PIP=$(TOOL_VIRTUALENV)/bin/pip
 TOOL_INSTALL=$(TOOL_PIP) install --upgrade
-
 export PATH:=$(BUILD_RUNTIMES)/snakepit:$(TOOLS):$(PATH)
 export LC_ALL=C.UTF-8
 
@@ -85,25 +84,25 @@ check-format: format lint
 	git diff --exit-code
 
 check-py26: $(PY26) $(TOX)
-	$(TOX) -e py26
+	$(TOX) -e py26-nocoverage
 
 check-py27: $(PY27) $(TOX)
-	$(TOX) -e py27
+	$(TOX) -e py27-nocoverage
 
 check-py33: $(PY33) $(TOX)
-	$(TOX) -e py33
+	$(TOX) -e py33-nocoverage
 
 check-py34: $(py34) $(TOX)
-	$(TOX) -e py34
+	$(TOX) -e py34-nocoverage
 
 check-py35: $(PY35) $(TOX)
-	$(TOX) -e py35
+	$(TOX) -e py35-nocoverage
 
 check-pypy: $(PYPY) $(TOX)
-	$(TOX) -e pypy
+	$(TOX) -e pypy-nocoverage
 
 check-coverage: $(TOX) $(PY35)
-	$(TOX) -e coverage
+	$(TOX) -e py35-coverage
 
 check: check-format check-coverage check-py26 check-py27 check-py33 check-py34 check-py35 check-pypy check-django check-pytest
 

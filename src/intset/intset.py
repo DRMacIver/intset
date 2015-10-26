@@ -109,19 +109,13 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
         def __init__(self):
             self.wrapped = ()
+            self.pending = []
             self.intervals = []
 
         def insert(self, value):
             """Add a single value to the IntSet to be built."""
-            if self.intervals:
-                last = self.intervals[-1]
-                if value == last[-1]:
-                    last[-1] += 1
-                    return
-                elif value + 1 == last[0]:
-                    last[0] -= 1
-                    return
-            self.intervals.append([value, value + 1])
+            _validate_integer_in_range("value", value)
+            self.pending.append(value)
 
         def insert_interval(self, start, end):
             """Add all values x such that start <= x < end to the IntSet to be
@@ -139,6 +133,30 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
             built values will be unaffected by subsequent inserts
 
             """
+            self.pending.sort()
+            still_pending = []
+            i = 0
+            while i < len(self.pending):
+                j = i
+                while j + 1 < len(self.pending):
+                    if self.pending[j + 1] == self.pending[j] + 1:
+                        j += 1
+                    else:
+                        break
+                if i < j:
+                    self.intervals.append([
+                        self.pending[i], self.pending[j] + 1
+                    ])
+                else:
+                    still_pending.append(self.pending[i])
+                i = j + 1
+            self.pending = []
+
+            if still_pending:
+                self.wrapped = _union(
+                    self.wrapped,
+                    _from_sorted_list(still_pending, 0, len(still_pending))
+                )
             if self.intervals:
                 intervals = _normalize_intervals(self.intervals)
                 self.intervals = []
@@ -194,10 +212,9 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
     def from_iterable(self, values):
         """Return an IntSet containing everything in values, which should be an
         iterable over intsets in the valid range."""
-        builder = IntSet.Builder()
-        for i in values:
-            builder.insert(i)
-        return builder.build()
+        return IntSet._wrap(
+            _from_sorted_list(sorted(values), 0, len(values))
+        )
 
     @classmethod
     def from_intervals(cls, intervals):
@@ -777,6 +794,16 @@ def _intervals(self):
         else:
             stack.append(head[_RIGHT])
             stack.append(head[_LEFT])
+
+
+def _from_sorted_list(ls, start, end):
+    if start == end:
+        return ()
+    if start + 1 == end:
+        return _new_single(ls[start])
+    mid = (start + end) // 2
+    return _union(
+        _from_sorted_list(ls, start, mid), _from_sorted_list(ls, mid, end))
 
 
 def _reversed_intervals(self):
