@@ -114,7 +114,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
         def insert(self, value):
             """Add a single value to the IntSet to be built."""
-            _validate_integer_in_range("value", value)
+            _validate_integer_in_range('value', value)
             self.pending.append(value)
 
         def insert_interval(self, start, end):
