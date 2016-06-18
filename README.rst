@@ -14,4 +14,4 @@ The implementation is heavily based on `Fast Mergeable Integer Maps <http://ittc
 by Okasaki and Gill, but it has been adapted to support a somewhat different feature
 set and a more compact representation for certain usage patterns.
 
-For usage, see the `API documentation <http://intset.readthedocs.org/en/latest/>`_.
+For usage, see the `API documentation <https://intset.readthedocs.io/en/latest/>`_.
