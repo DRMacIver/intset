@@ -1,8 +1,8 @@
 Changelog
 =========
 
-Unreleased
-----------
+1.1.0 - 2026-09-24
+------------------
 
 * Fixed ``IntSet.single(2 ** 64 - 1)`` raising ``ValueError``. The largest
   representable value could be inserted with ``insert`` or via ``interval`` but
