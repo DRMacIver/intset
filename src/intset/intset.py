@@ -24,7 +24,10 @@
 
 from __future__ import division, print_function, absolute_import
 
-from collections import Set, Sequence
+try:
+    from collections import Sequence, Set
+except ImportError:
+    from collections.abc import Sequence, Set
 
 __all__ = [
     'IntSet',
