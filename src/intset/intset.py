@@ -1,8 +1,6 @@
-# coding=utf-8
+# This file is part of intset (https://github.com/DRMacIver/intset)
 
-# This file is part of intset (https://github.com/DRMacIver/inteset)
-
-# Most of this work is copyright (C) 2013-2015 David R. MacIver
+# Most of this work is copyright (C) 2013-2026 David R. MacIver
 # (david@drmaciver.com), but it contains contributions by others, who hold
 # copyright over their individual contributions.
 
@@ -12,30 +10,15 @@
 
 # END HEADER
 
-# coding=utf-8
 
-# This file is part of intset (https://github.com/DRMacIver/intset)
-
-# Copyright (C) 2013-2015 David R. MacIver (david@drmaciver.com)
-
-# This Source Code Form is subject to the terms of the Mozilla Public License,
-# v. 2.0. If a copy of the MPL was not distributed with this file, You can
-# obtain one at http://mozilla.org/MPL/2.0/.
-
-from __future__ import division, print_function, absolute_import
-
-try:
-    from collections import Sequence, Set
-except ImportError:
-    from collections.abc import Sequence, Set
+from collections.abc import Sequence, Set
 
 __all__ = [
-    'IntSet',
+    "IntSet",
 ]
 
 
 class IntSetMeta(type):
-
     def __call__(self, *args, **kwargs):
         if len(args) == 0:
             return self._wrap(())
@@ -48,15 +31,13 @@ class IntSetMeta(type):
                     result.insert_interval(*i)
             return result.build()
         else:
-            raise TypeError('IntSet expected at most 1 arguments, got %d' % (
-                len(args),
-            ))
+            raise TypeError(f"IntSet expected at most 1 arguments, got {len(args)}")
 
     def _wrap(self, value):
         return type.__call__(self, value)
 
 
-class IntSet(IntSetMeta('IntSet', (object,), {})):
+class IntSet(metaclass=IntSetMeta):
     """
     An IntSet is a compressed immutable representation of a sorted list of
     unsigned 64-bit integers with fast membership, union and range restriction.
@@ -95,9 +76,9 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
     So e.g. IntSet([1, [10, 100]]) will contain the numbers 1 and 10, ..., 99.
     """
 
-    __slots__ = ('wrapped')
+    __slots__ = "wrapped"
 
-    class Builder(object):
+    class Builder:
         """An IntSet.Builder is for building up an IntSet incrementally through
         a series of insertions.
 
@@ -117,7 +98,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
         def insert(self, value):
             """Add a single value to the IntSet to be built."""
-            _validate_integer_in_range('value', value)
+            _validate_integer_in_range("value", value)
             self.pending.append(value)
 
         def insert_interval(self, start, end):
@@ -147,9 +128,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
                     else:
                         break
                 if i < j:
-                    self.intervals.append([
-                        self.pending[i], self.pending[j] + 1
-                    ])
+                    self.intervals.append([self.pending[i], self.pending[j] + 1])
                 else:
                     still_pending.append(self.pending[i])
                 i = j + 1
@@ -158,13 +137,12 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
             if still_pending:
                 self.wrapped = _union(
                     self.wrapped,
-                    _from_sorted_list(still_pending, 0, len(still_pending))
+                    _from_sorted_list(still_pending, 0, len(still_pending)),
                 )
             if self.intervals:
                 intervals = _normalize_intervals(self.intervals)
                 self.intervals = []
-                self.wrapped = _union(
-                    self.wrapped, _from_intervals(intervals))
+                self.wrapped = _union(self.wrapped, _from_intervals(intervals))
             return IntSet._wrap(self.wrapped)
 
     def __getstate__(self):
@@ -186,7 +164,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
                 bits.append((i, j))
             else:
                 bits.append(i)
-        return 'IntSet(%r)' % (bits,)
+        return f"IntSet({bits!r})"
 
     @classmethod
     def empty(cls):
@@ -196,8 +174,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
     @classmethod
     def single(cls, value):
         """Return an IntSet containing only the single value provided."""
-        _validate_integer_in_range('value', value)
-        _validate_integer_in_range('value + 1', value + 1)
+        _validate_integer_in_range("value", value)
         return IntSet._wrap(_new_single(value))
 
     @classmethod
@@ -206,25 +183,24 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
         Return an IntSet containing only the values x such that
         start <= x < end
         """
-        _validate_integer_in_range('start', start)
+        _validate_integer_in_range("start", start)
         if end != 0:
-            _validate_integer_in_range('end - 1', end - 1)
+            _validate_integer_in_range("end - 1", end - 1)
         return IntSet._wrap(_new_maybe_empty_interval(start, end))
 
     @classmethod
     def from_iterable(self, values):
         """Return an IntSet containing everything in values, which should be an
         iterable over intsets in the valid range."""
-        return IntSet._wrap(
-            _from_sorted_list(sorted(values), 0, len(values))
-        )
+        return IntSet._wrap(_from_sorted_list(sorted(values), 0, len(values)))
 
     @classmethod
     def from_intervals(cls, intervals):
         """Return a new IntSet which contains precisely the intervals passed
         in."""
         return cls._wrap(
-            _from_intervals(_normalize_intervals(list(map(list, intervals)))))
+            _from_intervals(_normalize_intervals(list(map(list, intervals))))
+        )
 
     def size(self):
         """This returns the same as len() when the latter is defined, but
@@ -238,7 +214,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
     def insert(self, value):
         """Returns an IntSet which contains all the values of the current one
         plus the provided value."""
-        _validate_integer_in_range('value', value)
+        _validate_integer_in_range("value", value)
         return IntSet._wrap(_insert(self.wrapped, value))
 
     def discard(self, value):
@@ -249,7 +225,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
         error
 
         """
-        _validate_integer_in_range('value', value)
+        _validate_integer_in_range("value", value)
         return IntSet._wrap(_discard(self.wrapped, value))
 
     def restrict(self, start, end):
@@ -262,9 +238,6 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
     def __bool__(self):
         return bool(self.wrapped)
-
-    def __nonzero__(self):
-        return self.__bool__()
 
     def __eq__(self, other):
         if self is other:
@@ -280,8 +253,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
     def __cmp__(self, other):
         if not isinstance(other, IntSet):
-            raise TypeError(
-                'Unorderable types IntSet and %s' % (type(other).__name__,))
+            raise TypeError(f"Unorderable types IntSet and {type(other).__name__}")
         self_intervals = list(self.intervals())
         other_intervals = list(other.intervals())
         self_intervals.reverse()
@@ -320,15 +292,12 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
     def __iter__(self):
         for start, end in self.intervals():
-            for i in range(start, end):
-                yield i
+            yield from range(start, end)
 
     def __getitem__(self, i):
         size = self.size()
         if i < -size or i >= size:
-            raise IndexError('IntSet index %d out of range for size %d' % (
-                i, size,
-            ))
+            raise IndexError(f"IntSet index {i} out of range for size {size}")
         if i < 0:
             i += size
         assert i >= 0
@@ -389,8 +358,7 @@ class IntSet(IntSetMeta('IntSet', (object,), {})):
 
     def __reversed__(self):
         for start, end in self.reversed_intervals():
-            for i in range(end - 1, start - 1, -1):
-                yield i
+            yield from range(end - 1, start - 1, -1)
 
 
 Sequence.register(IntSet)
@@ -439,8 +407,13 @@ def _new_split(prefix, mask, left, right):
 
 def _new_split_no_collapse(prefix, mask, left, right):
     return (
-        left[_START], right[_END],
-        left[_SIZE] + right[_SIZE], prefix, mask, left, right
+        left[_START],
+        right[_END],
+        left[_SIZE] + right[_SIZE],
+        prefix,
+        mask,
+        left,
+        right,
     )
 
 
@@ -451,8 +424,13 @@ def _split_interval(ins):
     split_prefix = _mask_off(start, split_mask)
     split_point = split_prefix | split_mask
     return (
-        start, end, ins[_SIZE], split_prefix, split_mask,
-        _new_interval(start, split_point), _new_interval(split_point, end)
+        start,
+        end,
+        ins[_SIZE],
+        split_prefix,
+        split_mask,
+        _new_interval(start, split_point),
+        _new_interval(split_point, end),
     )
 
 
@@ -465,10 +443,10 @@ def _join(p1, t1, p2, t2):
 
 
 def _insert(ins, value):
-    l = len(ins)
-    if l == 0:
+    length = len(ins)
+    if length == 0:
         return _new_single(value)
-    elif l == _INTERVAL_LENGTH:
+    elif length == _INTERVAL_LENGTH:
         start = ins[_START]
         end = ins[_END]
         if start <= value < end:
@@ -484,16 +462,11 @@ def _insert(ins, value):
     prefix = ins[_PREFIX]
     mask = ins[_MASK]
     if _no_match(value, prefix, mask):
-        return _join(
-            value, _new_single(value),
-            prefix, ins
-        )
+        return _join(value, _new_single(value), prefix, ins)
     elif _is_zero(value, mask):
-        return _new_split(
-            prefix, mask, _insert(ins[_LEFT], value), ins[_RIGHT])
+        return _new_split(prefix, mask, _insert(ins[_LEFT], value), ins[_RIGHT])
     else:
-        return _new_split(
-            prefix, mask, ins[_LEFT], _insert(ins[_RIGHT], value))
+        return _new_split(prefix, mask, ins[_LEFT], _insert(ins[_RIGHT], value))
 
 
 def _getitem(self, i):
@@ -507,10 +480,10 @@ def _getitem(self, i):
 
 
 def _discard(self, value):
-    l = len(self)
-    if l == 0:
+    length = len(self)
+    if length == 0:
         return self
-    elif l == _INTERVAL_LENGTH:
+    elif length == _INTERVAL_LENGTH:
         if value < self[_START] or value >= self[_END]:
             return self
         if value == self[_START]:
@@ -520,13 +493,11 @@ def _discard(self, value):
         self = _split_interval(self)
     if _is_zero(value, self[_MASK]):
         return _new_split_maybe_empty(
-            self[_PREFIX], self[_MASK],
-            _discard(self[_LEFT], value), self[_RIGHT]
+            self[_PREFIX], self[_MASK], _discard(self[_LEFT], value), self[_RIGHT]
         )
     else:
         return _new_split_maybe_empty(
-            self[_PREFIX], self[_MASK],
-            self[_LEFT], _discard(self[_RIGHT], value)
+            self[_PREFIX], self[_MASK], self[_LEFT], _discard(self[_RIGHT], value)
         )
 
 
@@ -571,8 +542,10 @@ def _from_intervals_worker(intervals):
         else:
             right.append(x)
     return _new_split_no_collapse(
-        split_prefix, split_mask,
-        _from_intervals_worker(left), _from_intervals_worker(right)
+        split_prefix,
+        split_mask,
+        _from_intervals_worker(left),
+        _from_intervals_worker(right),
     )
 
 
@@ -607,26 +580,23 @@ def _union(self, other):
         self, other = other, self
     if _shorter(self[_MASK], other[_MASK]):
         if _no_match(other[_PREFIX], self[_PREFIX], self[_MASK]):
-            return _join(
-                self[_PREFIX], self, other[_PREFIX], other
-            )
+            return _join(self[_PREFIX], self, other[_PREFIX], other)
         elif _is_zero(other[_PREFIX], self[_MASK]):
             return _new_split(
-                self[_PREFIX], self[_MASK],
-                _union(self[_LEFT], other), self[_RIGHT]
+                self[_PREFIX], self[_MASK], _union(self[_LEFT], other), self[_RIGHT]
             )
         else:
             return _new_split(
-                self[_PREFIX], self[_MASK],
-                self[_LEFT], _union(self[_RIGHT], other)
+                self[_PREFIX], self[_MASK], self[_LEFT], _union(self[_RIGHT], other)
             )
     else:
         assert self[_MASK] == other[_MASK]
         if self[_PREFIX] == other[_PREFIX]:
             return _new_split(
-                self[_PREFIX], self[_MASK],
+                self[_PREFIX],
+                self[_MASK],
                 _union(self[_LEFT], other[_LEFT]),
-                _union(self[_RIGHT], other[_RIGHT])
+                _union(self[_RIGHT], other[_RIGHT]),
             )
         else:
             return _join(self[_PREFIX], self, other[_PREFIX], other)
@@ -638,10 +608,10 @@ def _restrict(self, start, end):
     if start >= self[_END] or self[_START] >= end:
         return ()
     if len(self) == _INTERVAL_LENGTH:
-        return _new_interval(
-            max(start, self[_START]), min(end, self[_END]))
+        return _new_interval(max(start, self[_START]), min(end, self[_END]))
     return _new_split_maybe_empty(
-        self[_PREFIX], self[_MASK],
+        self[_PREFIX],
+        self[_MASK],
         _restrict(self[_LEFT], start, end),
         _restrict(self[_RIGHT], start, end),
     )
@@ -685,9 +655,10 @@ def _intersect(self, other):
             return _intersect(self[_RIGHT], other)
     else:
         return _new_split_maybe_empty(
-            self[_PREFIX], self[_MASK],
+            self[_PREFIX],
+            self[_MASK],
             _intersect(self[_LEFT], other[_LEFT]),
-            _intersect(self[_RIGHT], other[_RIGHT])
+            _intersect(self[_RIGHT], other[_RIGHT]),
         )
 
 
@@ -697,7 +668,8 @@ def _subtract(self, other):
     if len(other) == _INTERVAL_LENGTH:
         return _union(
             _restrict(self, self[_START], other[_START]),
-            _restrict(self, other[_END], self[_END]))
+            _restrict(self, other[_END], self[_END]),
+        )
     if self[_SIZE] == 1:
         if _contains(other, self[_START]):
             return ()
@@ -710,13 +682,11 @@ def _subtract(self, other):
             return self
         elif _is_zero(other[_PREFIX], self[_MASK]):
             return _new_split_maybe_empty(
-                self[_PREFIX], self[_MASK],
-                _subtract(self[_LEFT], other), self[_RIGHT]
+                self[_PREFIX], self[_MASK], _subtract(self[_LEFT], other), self[_RIGHT]
             )
         else:
             return _new_split_maybe_empty(
-                self[_PREFIX], self[_MASK], self[_LEFT],
-                _subtract(self[_RIGHT], other)
+                self[_PREFIX], self[_MASK], self[_LEFT], _subtract(self[_RIGHT], other)
             )
     elif _shorter(other[_MASK], self[_MASK]):
         if _is_zero(self[_PREFIX], other[_MASK]):
@@ -726,9 +696,10 @@ def _subtract(self, other):
     else:
         if self[_PREFIX] == other[_PREFIX]:
             return _new_split_maybe_empty(
-                self[_PREFIX], self[_MASK],
+                self[_PREFIX],
+                self[_MASK],
                 _subtract(self[_LEFT], other[_LEFT]),
-                _subtract(self[_RIGHT], other[_RIGHT])
+                _subtract(self[_RIGHT], other[_RIGHT]),
             )
         else:
             return self
@@ -754,9 +725,7 @@ def _issubset(self, other):
     if not other:
         return False
     if len(other) == _INTERVAL_LENGTH:
-        return (
-            other[_START] <= self[_START] and
-            self[_END] <= other[_END])
+        return other[_START] <= self[_START] and self[_END] <= other[_END]
     if self[_START] >= other[_END]:
         return False
     if other[_START] >= self[_END]:
@@ -765,9 +734,7 @@ def _issubset(self, other):
         if self[_SIZE] == 1:
             return _contains(other, self[_START])
         elif self[_SIZE] == 2:
-            return (
-                _contains(other, self[_START]) and
-                _contains(other, self[_END] - 1))
+            return _contains(other, self[_START]) and _contains(other, self[_END] - 1)
         self = _split_interval(self)
     if _shorter(self[_MASK], other[_MASK]):
         return False
@@ -781,9 +748,9 @@ def _issubset(self, other):
         # must have returned False already because they're actually
         # disjoint.
         assert self[_PREFIX] == other[_PREFIX]
-        return (
-            _issubset(self[_LEFT], other[_LEFT]) and
-            _issubset(self[_RIGHT], other[_RIGHT]))
+        return _issubset(self[_LEFT], other[_LEFT]) and _issubset(
+            self[_RIGHT], other[_RIGHT]
+        )
 
 
 def _intervals(self):
@@ -805,8 +772,7 @@ def _from_sorted_list(ls, start, end):
     if start + 1 == end:
         return _new_single(ls[start])
     mid = (start + end) // 2
-    return _union(
-        _from_sorted_list(ls, start, mid), _from_sorted_list(ls, mid, end))
+    return _union(_from_sorted_list(ls, start, mid), _from_sorted_list(ls, mid, end))
 
 
 def _reversed_intervals(self):
@@ -823,18 +789,18 @@ def _reversed_intervals(self):
 
 
 def _right_fill_bits(key):
-    key |= (key >> 1)
-    key |= (key >> 2)
-    key |= (key >> 4)
-    key |= (key >> 8)
-    key |= (key >> 16)
-    key |= (key >> 32)
+    key |= key >> 1
+    key |= key >> 2
+    key |= key >> 4
+    key |= key >> 8
+    key |= key >> 16
+    key |= key >> 32
     return key
 
 
 def _highest_bit_mask(k):
     k = _right_fill_bits(k)
-    k ^= (k >> 1)
+    k ^= k >> 1
     return k
 
 
@@ -857,19 +823,18 @@ def _no_match(i, p, m):
 def _shorter(m1, m2):
     return m1 > m2
 
-_UPPER_BOUND = 2 ** 64
+
+_UPPER_BOUND = 2**64
 
 whole_range = IntSet._wrap(_new_interval(0, _UPPER_BOUND))
 
-INTEGER_TYPES = (type(0), type(2 ** 64))
-
 
 def _validate_integer_in_range(name, i):
-    if not isinstance(i, INTEGER_TYPES):
+    if not isinstance(i, int):
         raise TypeError(
-            'Expected %s to be an integer but got %r of type %s' % (
-                name, i, type(i).__name__))
+            f"Expected {name} to be an integer but got {i!r} of type {type(i).__name__}"
+        )
     if i < 0 or i >= _UPPER_BOUND:
         raise ValueError(
-            'Argument %s=%d out of required range 0 <= %s < 2 ** 64' % (
-                name, i, name))
+            f"Argument {name}={i} out of required range 0 <= {name} < 2 ** 64"
+        )

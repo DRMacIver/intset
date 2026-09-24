@@ -10,5 +10,13 @@
 
 # END HEADER
 
-__version__ = "1.0.0"
-__version_info__ = tuple(int(part) for part in __version__.split("."))
+import doctest
+from pathlib import Path
+
+README = Path(__file__).parent.parent / "README.rst"
+
+
+def test_readme_examples_are_correct():
+    result = doctest.testfile(str(README), module_relative=False)
+    assert result.attempted > 0
+    assert result.failed == 0

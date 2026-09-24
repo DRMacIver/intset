@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "intset"
+dynamic = ["version"]
+description = "Efficient representations of large sets of integers"
+readme = "README.rst"
+license = "MPL-2.0"
+license-files = ["LICENSE.txt"]
+authors = [{ name = "David R. MacIver", email = "david@drmaciver.com" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/DRMacIver/intset"
+Documentation = "https://intset.readthedocs.io/en/latest/"
+Source = "https://github.com/DRMacIver/intset"
+Changelog = "https://github.com/DRMacIver/intset/blob/master/CHANGELOG.rst"
+
+[dependency-groups]
+dev = [
+    "hypothesis",
+    "pytest",
+    "pytest-benchmark",
+    "pytest-cov",
+    "ruff",
+]
+docs = [
+    "sphinx",
+]
+
+[tool.hatch.version]
+path = "src/intset/version.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/intset", "tests", "bench", "README.rst", "CHANGELOG.rst", "LICENSE.txt"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/intset"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:benchmark"
+
+[tool.coverage.run]
+branch = true
+source = ["intset"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+exclude_also = [
+    "pragma: no cover",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
